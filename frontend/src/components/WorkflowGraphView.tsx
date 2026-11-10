@@ -6,6 +6,8 @@ interface WorkflowGraphViewProps {
   edges: WorkflowEdge[];
   activeNodeIds?: string[];
   completedNodeIds?: string[];
+  selectedNodeId?: string | null;
+  onSelectNode?: (nodeId: string) => void;
 }
 
 export function computeAutoLayout(
@@ -75,6 +77,8 @@ export function WorkflowGraphView({
   edges,
   activeNodeIds = [],
   completedNodeIds = [],
+  selectedNodeId = null,
+  onSelectNode,
 }: WorkflowGraphViewProps) {
   const activeSet = new Set(activeNodeIds);
   const completedSet = new Set(completedNodeIds);
@@ -153,10 +157,13 @@ export function WorkflowGraphView({
           return (
             <div
               key={node.id}
-              className={`canvas-node ${isActive ? 'active' : ''} ${isCompleted ? 'completed' : ''} ${
+              onClick={() => onSelectNode?.(node.id)}
+              className={`canvas-node ${selectedNodeId === node.id ? 'selected' : ''} ${
+                isActive ? 'active' : ''
+              } ${isCompleted ? 'completed' : ''} ${
                 node.isCompensationHandler ? 'comp' : ''
               }`}
-              style={{ left: pos.x, top: pos.y, cursor: 'default' }}
+              style={{ left: pos.x, top: pos.y, cursor: onSelectNode ? 'pointer' : 'default' }}
             >
               <div style={{ display: 'flex', justifyContent: 'space-between', gap: 6, marginBottom: 4 }}>
                 <span className="badge badge-blue">{node.type}</span>

@@ -70,6 +70,10 @@ export default function App() {
 
   const [workflows, setWorkflows] = useState<WorkflowRecord[]>([]);
   const [selectedWf, setSelectedWf] = useState<WorkflowRecord | null>(null);
+  const [viewNodeId, setViewNodeId] = useState<string | null>(null);
+  const [viewNodeName, setViewNodeName] = useState('');
+  const [viewNodeStage, setViewNodeStage] = useState('');
+  const [viewNodeConfigText, setViewNodeConfigText] = useState('{}');
   const [designerTarget, setDesignerTarget] = useState<WorkflowRecord | null>(null);
   const [designerKeyCounter, setDesignerKeyCounter] = useState(0);
   const [intakeVars, setIntakeVars] = useState<Record<string, unknown>>({});
@@ -556,10 +560,106 @@ export default function App() {
                     </div>
                   </div>
 
-                  <WorkflowGraphView
-                    nodes={selectedWf.definition.nodes}
-                    edges={selectedWf.definition.edges}
-                  />
+                  <div style={{ display: 'grid', gridTemplateColumns: viewNodeId ? '1fr 310px' : '1fr', gap: 14 }}>
+                    <WorkflowGraphView
+                      nodes={selectedWf.definition.nodes}
+                      edges={selectedWf.definition.edges}
+                      selectedNodeId={viewNodeId}
+                      onSelectNode={(nid) => {
+                        const found = selectedWf.definition.nodes.find((n) => n.id === nid);
+                        setViewNodeId(nid);
+                        setViewNodeName(found?.name ?? '');
+                        setViewNodeStage(found?.stage ?? '');
+                        setViewNodeConfigText(JSON.stringify(found?.config ?? {}, null, 2));
+                      }}
+                    />
+
+                    {viewNodeId && (
+                      <div className="card" style={{ background: '#0e1528' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                          <strong style={{ fontSize: 13 }}>Step Editor ({viewNodeId})</strong>
+                          <button className="port-btn" onClick={() => setViewNodeId(null)}>
+                            ×
+                          </button>
+                        </div>
+                        <div style={{ display: 'grid', gap: 8 }}>
+                          <div>
+                            <label style={{ fontSize: 11, color: 'var(--muted)' }}>Step Name</label>
+                            <input
+                              className="input"
+                              value={viewNodeName}
+                              onChange={(e) => setViewNodeName(e.target.value)}
+                            />
+                          </div>
+                          <div>
+                            <label style={{ fontSize: 11, color: 'var(--muted)' }}>Kissflow Stage</label>
+                            <input
+                              className="input"
+                              value={viewNodeStage}
+                              onChange={(e) => setViewNodeStage(e.target.value)}
+                            />
+                          </div>
+                          <div>
+                            <label style={{ fontSize: 11, color: 'var(--muted)' }}>Config (JSON)</label>
+                            <textarea
+                              className="textarea"
+                              rows={8}
+                              value={viewNodeConfigText}
+                              onChange={(e) => setViewNodeConfigText(e.target.value)}
+                            />
+                          </div>
+                          <button
+                            className="btn btn-primary"
+                            onClick={async () => {
+                              try {
+                                const parsedConfig = JSON.parse(viewNodeConfigText) as Record<string, unknown>;
+                                const updatedDef = {
+                                  ...selectedWf.definition,
+                                  nodes: selectedWf.definition.nodes.map((n) =>
+                                    n.id === viewNodeId
+                                      ? {
+                                          ...n,
+                                          name: viewNodeName,
+                                          stage: viewNodeStage || undefined,
+                                          config: parsedConfig,
+                                        }
+                                      : n,
+                                  ),
+                                };
+                                if (selectedWf.status === 'DRAFT') {
+                                  const upd = await api.updateWorkflow(selectedWf.id, {
+                                    definition: updatedDef,
+                                  });
+                                  setSelectedWf(upd);
+                                  notify(`Updated step '${viewNodeId}' in draft v${upd.version}`);
+                                } else {
+                                  const draft = await api.createWorkflow({
+                                    key: selectedWf.key,
+                                    name: selectedWf.name,
+                                    description: selectedWf.description,
+                                    definition: updatedDef,
+                                  });
+                                  setSelectedWf(draft);
+                                  notify(
+                                    `Created new draft v${draft.version} with updated step '${viewNodeId}'`,
+                                  );
+                                }
+                                await refreshAll();
+                              } catch (err) {
+                                setError(
+                                  err instanceof Error ? err.message : 'Failed to save step edit',
+                                );
+                              }
+                            }}
+                          >
+                            {selectedWf.status === 'DRAFT'
+                              ? 'Save Step to Draft'
+                              : 'Save Step as New Draft'}
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 </div>
 
                 {selectedWf.status === 'PUBLISHED' && (
