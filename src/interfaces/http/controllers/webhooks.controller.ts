@@ -1,5 +1,14 @@
 import { Body, Controller, Headers, HttpCode, HttpStatus, Inject, Param, Post, Req } from '@nestjs/common';
-import { ApiOperation, ApiTags } from '@nestjs/swagger';
+import {
+  ApiAcceptedResponse,
+  ApiBody,
+  ApiHeader,
+  ApiNotFoundResponse,
+  ApiOperation,
+  ApiParam,
+  ApiTags,
+  ApiUnauthorizedResponse,
+} from '@nestjs/swagger';
 import type { Request } from 'express';
 import { WorkflowEngine } from '../../../application/engine/workflow-engine.js';
 import { UNIT_OF_WORK } from '../../../application/tokens.js';
@@ -7,6 +16,11 @@ import { NotFoundError, UnauthorizedError } from '../../../domain/errors.js';
 import type { IUnitOfWork } from '../../../domain/ports/repositories.js';
 import { sha256Hex, timingSafeEqualHex } from '../../../infrastructure/security/password.js';
 import { Public } from '../decorators/auth.decorator.js';
+import {
+  ErrorResponseDto,
+  WebhookAcceptedResponseDto,
+  WebhookTriggerPayloadDto,
+} from '../dto/api.dto.js';
 
 @ApiTags('Webhooks (n8n)')
 @Controller('webhooks')
@@ -20,8 +34,26 @@ export class WebhooksController {
   @Post(':path')
   @HttpCode(HttpStatus.ACCEPTED)
   @ApiOperation({
-    summary: 'Trigger a published webhook workflow (supports HMAC-SHA256 x-nexus-signature)',
+    summary: 'Trigger a published webhook workflow (supports x-webhook-secret or x-nexus-signature)',
   })
+  @ApiParam({ name: 'path', example: 'procurement/submit' })
+  @ApiHeader({
+    name: 'x-webhook-secret',
+    required: false,
+    description: 'Shared webhook secret configured when creating the workflow',
+  })
+  @ApiHeader({
+    name: 'x-nexus-signature',
+    required: false,
+    description: 'Pre-hashed sha256 signature matching the stored webhook secret hash',
+  })
+  @ApiBody({ type: WebhookTriggerPayloadDto })
+  @ApiAcceptedResponse({
+    description: 'Webhook accepted and workflow instance started',
+    type: WebhookAcceptedResponseDto,
+  })
+  @ApiUnauthorizedResponse({ description: 'Invalid webhook secret/signature', type: ErrorResponseDto })
+  @ApiNotFoundResponse({ description: 'No published workflow matches webhook path', type: ErrorResponseDto })
   async trigger(
     @Param('path') path: string,
     @Req() req: Request,
@@ -42,7 +74,6 @@ export class WebhooksController {
       const hmacMatches =
         typeof signature === 'string' &&
         signature.length > 0 &&
-        // Allows verifying either raw HMAC against stored secret hash or pre-shared sha256 signature
         timingSafeEqualHex(signature, workflow.webhookSecretHash);
 
       if (!headerMatches && !hmacMatches) {
@@ -76,4 +107,3 @@ export class WebhooksController {
     };
   }
 }
-

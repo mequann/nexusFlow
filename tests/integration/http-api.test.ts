@@ -36,6 +36,13 @@ describe('NestJS HTTP API (E2E Integration)', () => {
 
     const metrics = await request(server).get('/metrics').expect(200);
     expect(metrics.text).toContain('nexusflow_http_request_duration_ms');
+
+    const openapi = await request(server).get('/docs-json').expect(200);
+    expect(openapi.body.components.schemas).toHaveProperty('LoginRequestDto');
+    expect(openapi.body.components.schemas).toHaveProperty('CreateWorkflowDto');
+    expect(openapi.body.components.schemas).toHaveProperty('CaseSummaryResponseDto');
+    expect(openapi.body.components.schemas).toHaveProperty('ErrorResponseDto');
+    expect(openapi.body.paths['/api/v1/workflows'].post.requestBody).toBeDefined();
   });
 
   it('enforces JWT authentication and RBAC permissions', async () => {

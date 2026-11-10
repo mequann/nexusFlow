@@ -11,13 +11,37 @@ import {
   Query,
   UseInterceptors,
 } from '@nestjs/common';
-import { ApiBearerAuth, ApiHeader, ApiOperation, ApiTags } from '@nestjs/swagger';
+import {
+  ApiBadRequestResponse,
+  ApiBearerAuth,
+  ApiBody,
+  ApiConflictResponse,
+  ApiCreatedResponse,
+  ApiForbiddenResponse,
+  ApiHeader,
+  ApiNotFoundResponse,
+  ApiOkResponse,
+  ApiOperation,
+  ApiParam,
+  ApiQuery,
+  ApiTags,
+  ApiUnauthorizedResponse,
+} from '@nestjs/swagger';
 import { z } from 'zod';
 import { WorkflowEngine } from '../../../application/engine/workflow-engine.js';
 import { WorkflowService } from '../../../application/services/workflow-service.js';
 import type { AuthPrincipal } from '../../../domain/security/types.js';
 import type { WorkflowGraphDefinition, WorkflowStatus } from '../../../domain/workflow/types.js';
 import { CurrentPrincipal, RequirePermission } from '../decorators/auth.decorator.js';
+import {
+  CreateWorkflowDto,
+  ErrorResponseDto,
+  InstanceResponseDto,
+  StartInstanceDto,
+  UpdateWorkflowDto,
+  WorkflowListResponseDto,
+  WorkflowResponseDto,
+} from '../dto/api.dto.js';
 import { IdempotencyInterceptor } from '../interceptors/idempotency.interceptor.js';
 import { ZodValidationPipe } from '../pipes/zod-validation.pipe.js';
 
@@ -106,18 +130,25 @@ export class WorkflowsController {
   @Post()
   @RequirePermission('workflow:write')
   @UseInterceptors(IdempotencyInterceptor)
-  @ApiHeader({ name: 'Idempotency-Key', required: false })
+  @ApiHeader({ name: 'Idempotency-Key', required: false, description: 'Optional deduplication key' })
   @ApiOperation({ summary: 'Create a new workflow version in DRAFT state' })
+  @ApiBody({ type: CreateWorkflowDto })
+  @ApiCreatedResponse({ description: 'Workflow draft created', type: WorkflowResponseDto })
+  @ApiBadRequestResponse({ description: 'Graph validation or schema error', type: ErrorResponseDto })
+  @ApiUnauthorizedResponse({ description: 'Unauthorized', type: ErrorResponseDto })
+  @ApiForbiddenResponse({ description: 'Insufficient role permissions', type: ErrorResponseDto })
+  @ApiConflictResponse({ description: 'Idempotency payload conflict', type: ErrorResponseDto })
   async create(
     @CurrentPrincipal() principal: AuthPrincipal,
-    @Body(new ZodValidationPipe(CreateWorkflowSchema)) body: z.infer<typeof CreateWorkflowSchema>,
+    @Body(new ZodValidationPipe(CreateWorkflowSchema)) body: CreateWorkflowDto,
   ) {
+    const validated = body as z.infer<typeof CreateWorkflowSchema>;
     return this.workflowService.createWorkflow({
-      key: body.key,
-      name: body.name,
-      description: body.description,
-      definition: body.definition as WorkflowGraphDefinition,
-      webhookSecret: body.webhookSecret,
+      key: validated.key,
+      name: validated.name,
+      description: validated.description,
+      definition: validated.definition as WorkflowGraphDefinition,
+      webhookSecret: validated.webhookSecret,
       createdBy: principal.userId,
     });
   }
@@ -125,6 +156,10 @@ export class WorkflowsController {
   @Get()
   @RequirePermission('workflow:read')
   @ApiOperation({ summary: 'List workflows optionally filtered by status or key' })
+  @ApiQuery({ name: 'status', required: false, enum: ['DRAFT', 'PUBLISHED', 'ARCHIVED'] })
+  @ApiQuery({ name: 'key', required: false, example: 'procurement-capex-approval' })
+  @ApiOkResponse({ description: 'List of workflow definitions', type: WorkflowListResponseDto })
+  @ApiUnauthorizedResponse({ description: 'Unauthorized', type: ErrorResponseDto })
   async list(@Query('status') status?: WorkflowStatus, @Query('key') key?: string) {
     const items = await this.workflowService.list({ status, key });
     return { items };
@@ -133,6 +168,9 @@ export class WorkflowsController {
   @Get(':id')
   @RequirePermission('workflow:read')
   @ApiOperation({ summary: 'Get workflow definition by ID' })
+  @ApiParam({ name: 'id', example: '0238655f-3914-4bbd-971c-17703d47fd00' })
+  @ApiOkResponse({ description: 'Workflow definition', type: WorkflowResponseDto })
+  @ApiNotFoundResponse({ description: 'Workflow not found', type: ErrorResponseDto })
   async getById(@Param('id') id: string) {
     return this.workflowService.getById(id);
   }
@@ -140,15 +178,22 @@ export class WorkflowsController {
   @Put(':id')
   @RequirePermission('workflow:write')
   @ApiOperation({ summary: 'Update a DRAFT workflow definition' })
+  @ApiParam({ name: 'id', example: '0238655f-3914-4bbd-971c-17703d47fd00' })
+  @ApiBody({ type: UpdateWorkflowDto })
+  @ApiOkResponse({ description: 'Updated draft workflow', type: WorkflowResponseDto })
+  @ApiBadRequestResponse({ description: 'Validation failed', type: ErrorResponseDto })
+  @ApiNotFoundResponse({ description: 'Workflow not found', type: ErrorResponseDto })
+  @ApiConflictResponse({ description: 'Only DRAFT workflows can be mutated', type: ErrorResponseDto })
   async updateDraft(
     @Param('id') id: string,
-    @Body(new ZodValidationPipe(UpdateWorkflowSchema)) body: z.infer<typeof UpdateWorkflowSchema>,
+    @Body(new ZodValidationPipe(UpdateWorkflowSchema)) body: UpdateWorkflowDto,
   ) {
+    const validated = body as z.infer<typeof UpdateWorkflowSchema>;
     return this.workflowService.updateDraft(id, {
-      name: body.name,
-      description: body.description,
-      definition: body.definition as WorkflowGraphDefinition | undefined,
-      webhookSecret: body.webhookSecret,
+      name: validated.name,
+      description: validated.description,
+      definition: validated.definition as WorkflowGraphDefinition | undefined,
+      webhookSecret: validated.webhookSecret,
     });
   }
 
@@ -156,6 +201,10 @@ export class WorkflowsController {
   @HttpCode(HttpStatus.OK)
   @RequirePermission('workflow:publish')
   @ApiOperation({ summary: 'Validate and publish a workflow version' })
+  @ApiParam({ name: 'id', example: '0238655f-3914-4bbd-971c-17703d47fd00' })
+  @ApiOkResponse({ description: 'Workflow published', type: WorkflowResponseDto })
+  @ApiNotFoundResponse({ description: 'Workflow not found', type: ErrorResponseDto })
+  @ApiConflictResponse({ description: 'Cannot publish archived workflow', type: ErrorResponseDto })
   async publish(@Param('id') id: string) {
     return this.workflowService.publishWorkflow(id);
   }
@@ -163,21 +212,27 @@ export class WorkflowsController {
   @Post(':key/instances')
   @RequirePermission('instance:start')
   @UseInterceptors(IdempotencyInterceptor)
-  @ApiHeader({ name: 'Idempotency-Key', required: false })
+  @ApiHeader({ name: 'Idempotency-Key', required: false, description: 'Optional deduplication key' })
   @ApiOperation({ summary: 'Start a new workflow execution instance' })
+  @ApiParam({ name: 'key', example: 'procurement-capex-approval' })
+  @ApiBody({ type: StartInstanceDto })
+  @ApiCreatedResponse({ description: 'Workflow instance started', type: InstanceResponseDto })
+  @ApiBadRequestResponse({ description: 'Intake form validation error', type: ErrorResponseDto })
+  @ApiNotFoundResponse({ description: 'Published workflow not found', type: ErrorResponseDto })
+  @ApiConflictResponse({ description: 'Idempotency conflict', type: ErrorResponseDto })
   async startInstance(
     @Param('key') key: string,
     @CurrentPrincipal() principal: AuthPrincipal,
-    @Body(new ZodValidationPipe(StartInstanceSchema)) body: z.infer<typeof StartInstanceSchema>,
+    @Body(new ZodValidationPipe(StartInstanceSchema)) body: StartInstanceDto,
   ) {
+    const validated = body as z.infer<typeof StartInstanceSchema>;
     return this.engine.startInstance({
       workflowKey: key,
-      version: body.version,
-      triggerPayload: body.payload,
-      initialVariables: body.variables,
-      correlationKey: body.correlationKey ?? null,
+      version: validated.version,
+      triggerPayload: validated.payload,
+      initialVariables: validated.variables,
+      correlationKey: validated.correlationKey ?? null,
       startedBy: principal.userId,
     });
   }
 }
-
