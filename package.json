@@ -7,7 +7,9 @@
   "scripts": {
     "dev": "tsx watch src/main.ts",
     "dev:worker": "tsx watch src/worker.ts",
+    "dev:frontend": "npm --prefix frontend run dev",
     "build": "tsc -p tsconfig.json",
+    "build:frontend": "npm --prefix frontend run build",
     "start": "node dist/main.js",
     "start:worker": "node dist/worker.js",
     "migrate": "tsx src/infrastructure/db/migrator.ts",
