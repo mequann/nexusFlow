@@ -29,3 +29,4 @@ CREATE TABLE IF NOT EXISTS case_comments (
 
 CREATE INDEX IF NOT EXISTS idx_case_comments_instance
   ON case_comments (instance_id, created_at ASC);
+

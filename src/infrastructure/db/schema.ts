@@ -289,3 +289,4 @@ export const idempotencyKeys = pgTable(
   },
   (table) => [primaryKey({ columns: [table.key, table.scope] })],
 );
+
