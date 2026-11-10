@@ -312,6 +312,110 @@ textarea {
   border-color: var(--warn);
 }
 
+.studio-grid {
+  display: grid;
+  grid-template-columns: 245px 1fr 310px;
+  gap: 14px;
+  align-items: start;
+}
+
+.palette-item {
+  padding: 9px 10px;
+  border-radius: 9px;
+  border: 1px solid var(--border);
+  background: #0d1426;
+  cursor: grab;
+  margin-bottom: 8px;
+  transition: border-color 0.15s ease, transform 0.1s ease;
+  user-select: none;
+}
+
+.palette-item:hover {
+  border-color: var(--primary);
+  transform: translateY(-1px);
+}
+
+.canvas-board {
+  position: relative;
+  min-height: 580px;
+  overflow: auto;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background-color: #080d1a;
+  background-image:
+    radial-gradient(#1f2a48 1.2px, transparent 1.2px);
+  background-size: 20px 20px;
+}
+
+.canvas-inner {
+  position: relative;
+  width: 1400px;
+  height: 760px;
+}
+
+.canvas-node {
+  position: absolute;
+  width: 224px;
+  padding: 10px 12px;
+  border-radius: 11px;
+  border: 1px solid var(--border);
+  background: rgba(19, 28, 51, 0.96);
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.35);
+  cursor: grab;
+  user-select: none;
+  z-index: 2;
+}
+
+.canvas-node.selected {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.32);
+}
+
+.canvas-node.active {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px rgba(6, 182, 212, 0.35);
+}
+
+.canvas-node.completed {
+  border-color: rgba(16, 185, 129, 0.65);
+}
+
+.canvas-node.comp {
+  border-style: dashed;
+  border-color: var(--warn);
+}
+
+.node-port-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 8px;
+  padding-top: 7px;
+  border-top: 1px solid var(--border);
+  gap: 6px;
+}
+
+.port-btn {
+  padding: 3px 8px;
+  font-size: 11px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: #0b1122;
+  cursor: pointer;
+}
+
+.port-btn:hover,
+.port-btn.wiring {
+  border-color: var(--accent);
+  color: #67e8f9;
+}
+
+@media (max-width: 1200px) {
+  .studio-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
 .login-wrap {
   min-height: 100vh;
   display: grid;

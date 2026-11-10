@@ -38,6 +38,8 @@ export interface NodeDefinition {
   type: NodeType;
   /** Kissflow business case milestone / stage (e.g., 'Intake', 'Finance Review', 'ERP Sync') */
   stage?: string;
+  /** Optional visual canvas coordinates persisted for the Drag-and-Drop Studio */
+  position?: { x: number; y: number };
   config: Record<string, unknown>;
   retryPolicy?: RetryPolicy;
   /** Camunda Saga compensation handler node id to run in reverse order on failure */

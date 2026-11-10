@@ -8,16 +8,21 @@ import {
   KeyRound,
   LogOut,
   MessageSquare,
+  Pencil,
   Play,
   Plus,
   Plug,
   RefreshCw,
   Send,
   Shield,
+  Trash2,
+  UserPlus,
+  Webhook,
   Workflow,
 } from 'lucide-react';
 import { api, getSavedToken, setSavedToken } from './api';
 import { DynamicForm } from './components/DynamicForm';
+import { WorkflowDesigner } from './components/WorkflowDesigner';
 import { WorkflowGraphView } from './components/WorkflowGraphView';
 import type {
   CaseSummary,
@@ -32,48 +37,21 @@ import type {
   WorkflowRecord,
 } from './types';
 
-type Tab = 'overview' | 'workflows' | 'cases' | 'tasks' | 'operations' | 'connectors';
-
-const SAMPLE_WORKFLOW_JSON = JSON.stringify(
-  {
-    sagaEnabled: true,
-    nodes: [
-      { id: 'start', name: 'Manual Intake', type: 'trigger.manual', stage: 'Intake', config: {} },
-      {
-        id: 'matrix',
-        name: 'Dynamic Approval Matrix',
-        type: 'kissflow.approval_matrix',
-        stage: 'Approval',
-        config: {
-          rules: [
-            {
-              when: '$vars.amount >= 5000',
-              title: 'Executive Review ($vars.amount)',
-              candidateGroup: 'finance',
-              requiredApprovals: 1,
-              slaMinutes: 30,
-            },
-          ],
-          defaultRule: { title: 'Standard Review', candidateGroup: 'ops', requiredApprovals: 1 },
-        },
-      },
-      { id: 'end', name: 'Completed', type: 'bpmn.end', stage: 'Done', config: {} },
-    ],
-    edges: [
-      { id: 'e1', from: 'start', to: 'matrix' },
-      { id: 'e2', from: 'matrix', to: 'end' },
-    ],
-  },
-  null,
-  2,
-);
+type Tab = 'overview' | 'workflows' | 'designer' | 'cases' | 'tasks' | 'operations' | 'connectors';
 
 function statusBadge(status: string) {
-  if (status === 'COMPLETED' || status === 'PUBLISHED' || status === 'ON_TRACK') return 'badge-green';
+  if (status === 'COMPLETED' || status === 'PUBLISHED' || status === 'ON_TRACK' || status === 'ready')
+    return 'badge-green';
   if (status === 'WAITING' || status === 'OPEN' || status === 'CLAIMED' || status === 'RUNNING')
     return 'badge-blue';
   if (status === 'DRAFT' || status === 'COMPENSATING' || status === 'COMPENSATED') return 'badge-amber';
-  if (status === 'INCIDENT_OPEN' || status === 'FAILED' || status === 'BREACHED' || status === 'REJECTED')
+  if (
+    status === 'INCIDENT_OPEN' ||
+    status === 'FAILED' ||
+    status === 'BREACHED' ||
+    status === 'REJECTED' ||
+    status === 'unavailable'
+  )
     return 'badge-red';
   return '';
 }
@@ -87,10 +65,15 @@ export default function App() {
   const [tab, setTab] = useState<Tab>('overview');
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [dbReady, setDbReady] = useState<string>('checking');
+  const [autoPoll, setAutoPoll] = useState<boolean>(true);
 
   const [workflows, setWorkflows] = useState<WorkflowRecord[]>([]);
   const [selectedWf, setSelectedWf] = useState<WorkflowRecord | null>(null);
+  const [designerTarget, setDesignerTarget] = useState<WorkflowRecord | null>(null);
+  const [designerKeyCounter, setDesignerKeyCounter] = useState(0);
   const [intakeVars, setIntakeVars] = useState<Record<string, unknown>>({});
+  const [webhookSecretInput, setWebhookSecretInput] = useState('procurement-webhook-secret');
 
   const [instances, setInstances] = useState<WorkflowInstance[]>([]);
   const [selectedCase, setSelectedCase] = useState<CaseSummary | null>(null);
@@ -109,11 +92,6 @@ export default function App() {
   const [externalTasks, setExternalTasks] = useState<ExternalTask[]>([]);
   const [extTopic, setExtTopic] = useState('external.sap_create_invoice');
 
-  // Create workflow form
-  const [newWfKey, setNewWfKey] = useState('custom-dynamic-flow');
-  const [newWfName, setNewWfName] = useState('Custom Dynamic Flow');
-  const [newWfDefJson, setNewWfDefJson] = useState(SAMPLE_WORKFLOW_JSON);
-
   // Register custom connector form
   const [connType, setConnType] = useState('connector.slack_alert');
   const [connTitle, setConnTitle] = useState('Slack Alert Connector');
@@ -127,15 +105,38 @@ export default function App() {
   const [msgName, setMsgName] = useState('goods.received');
   const [msgKey, setMsgKey] = useState('PO-2026-088');
 
+  // Admin User & API Key creation
+  const [regEmail, setRegEmail] = useState('');
+  const [regName, setRegName] = useState('');
+  const [regPassword, setRegPassword] = useState('');
+  const [regRole, setRegRole] = useState<UserInfo['role']>('OPERATOR');
+  const [apiKeyName, setApiKeyName] = useState('');
+  const [apiKeyRole, setApiKeyRole] = useState<UserInfo['role']>('OPERATOR');
+  const [issuedApiKey, setIssuedApiKey] = useState<string | null>(null);
+
   const notify = (msg: string) => {
     setError(null);
     setNotice(msg);
   };
 
+  const loadCaseDetails = useCallback(async (instanceId: string) => {
+    try {
+      const [caseRes, traceRes] = await Promise.all([
+        api.getCase(instanceId),
+        api.getTrace(instanceId),
+      ]);
+      setSelectedCase(caseRes);
+      setSelectedTrace(traceRes);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load case');
+    }
+  }, []);
+
   const refreshAll = useCallback(async () => {
     if (!token) return;
     try {
-      const [meRes, wfRes, instRes, taskRes, incRes, connRes, credRes] = await Promise.all([
+      const [readyRes, meRes, wfRes, instRes, taskRes, incRes, connRes, credRes] = await Promise.all([
+        api.ready().catch(() => ({ status: 'unavailable' })),
         api.me(),
         api.listWorkflows(),
         api.listInstances(),
@@ -145,6 +146,7 @@ export default function App() {
         api.listCredentials(),
       ]);
 
+      setDbReady(readyRes.status);
       setUser({
         id: meRes.principal.userId,
         email: meRes.principal.email,
@@ -176,18 +178,17 @@ export default function App() {
     void refreshAll();
   }, [refreshAll]);
 
-  const loadCaseDetails = async (instanceId: string) => {
-    try {
-      const [caseRes, traceRes] = await Promise.all([
-        api.getCase(instanceId),
-        api.getTrace(instanceId),
-      ]);
-      setSelectedCase(caseRes);
-      setSelectedTrace(traceRes);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load case');
-    }
-  };
+  // Live auto-refresh every 2.5s when enabled so parallel worker progress updates automatically
+  useEffect(() => {
+    if (!token || !autoPoll) return;
+    const timer = setInterval(() => {
+      void refreshAll();
+      if (selectedCase) {
+        void loadCaseDetails(selectedCase.instance.id);
+      }
+    }, 2500);
+    return () => clearInterval(timer);
+  }, [token, autoPoll, refreshAll, selectedCase, loadCaseDetails]);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -261,6 +262,10 @@ export default function App() {
     (i) => i.status === 'WAITING' || i.status === 'RUNNING',
   ).length;
 
+  const selectedCaseWorkflow = selectedCase
+    ? workflows.find((w) => w.id === selectedCase.instance.workflowId)
+    : undefined;
+
   return (
     <div className="layout">
       <aside className="sidebar">
@@ -283,13 +288,23 @@ export default function App() {
             className={`nav-btn ${tab === 'workflows' ? 'active' : ''}`}
             onClick={() => setTab('workflows')}
           >
-            <Workflow size={16} /> Workflow Studio ({workflows.length})
+            <Workflow size={16} /> Workflows ({workflows.length})
+          </button>
+          <button
+            className={`nav-btn ${tab === 'designer' ? 'active' : ''}`}
+            onClick={() => {
+              setDesignerTarget(null);
+              setDesignerKeyCounter((c) => c + 1);
+              setTab('designer');
+            }}
+          >
+            <Plus size={16} /> Drag & Drop Designer
           </button>
           <button
             className={`nav-btn ${tab === 'cases' ? 'active' : ''}`}
             onClick={() => setTab('cases')}
           >
-            <Briefcase size={16} /> Cases & Instances ({instances.length})
+            <Briefcase size={16} /> Cases & Trace ({instances.length})
           </button>
           <button
             className={`nav-btn ${tab === 'tasks' ? 'active' : ''}`}
@@ -307,11 +322,14 @@ export default function App() {
             className={`nav-btn ${tab === 'connectors' ? 'active' : ''}`}
             onClick={() => setTab('connectors')}
           >
-            <Plug size={16} /> Connectors & Vault ({connectors.length})
+            <Plug size={16} /> Connectors, Vault & Access
           </button>
         </nav>
 
         <div style={{ marginTop: 'auto', borderTop: '1px solid var(--border)', paddingTop: 14 }}>
+          <div style={{ marginBottom: 10 }}>
+            <span className={`badge ${statusBadge(dbReady)}`}>DB: {dbReady}</span>
+          </div>
           {user && (
             <div style={{ marginBottom: 10 }}>
               <div style={{ fontSize: 13, fontWeight: 600 }}>{user.email}</div>
@@ -336,22 +354,38 @@ export default function App() {
           <div>
             <h1 style={{ margin: 0, fontSize: 22 }}>
               {tab === 'overview' && 'Executive Control Plane'}
-              {tab === 'workflows' && 'Hybrid Workflow Studio'}
-              {tab === 'cases' && 'Kissflow Business Cases & Trace'}
+              {tab === 'workflows' && 'Published Workflows & Runner'}
+              {tab === 'designer' && 'Drag & Drop Workflow Designer (Sequential & Parallel)'}
+              {tab === 'cases' && 'Kissflow Business Cases & Live Execution Trace'}
               {tab === 'tasks' && 'Human Approval & Task Inbox'}
               {tab === 'operations' && 'Camunda Incidents & Polyglot Workers'}
-              {tab === 'connectors' && 'Dynamic Connectors & AES-256-GCM Vault'}
+              {tab === 'connectors' && 'Dynamic Connectors, Vault & RBAC Access'}
             </h1>
             <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>
               NestJS · Drizzle ORM · PostgreSQL · Swagger OpenAPI at{' '}
-              <a href="http://localhost:3000/docs" target="_blank" rel="noreferrer" style={{ color: '#67e8f9' }}>
+              <a
+                href="http://localhost:3000/docs"
+                target="_blank"
+                rel="noreferrer"
+                style={{ color: '#67e8f9' }}
+              >
                 /docs
               </a>
             </div>
           </div>
-          <button className="btn btn-primary" onClick={() => void refreshAll()}>
-            <RefreshCw size={14} /> Refresh Live State
-          </button>
+          <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
+              <input
+                type="checkbox"
+                checked={autoPoll}
+                onChange={(e) => setAutoPoll(e.target.checked)}
+              />
+              Live Sync (2.5s)
+            </label>
+            <button className="btn btn-primary" onClick={() => void refreshAll()}>
+              <RefreshCw size={14} /> Refresh
+            </button>
+          </div>
         </div>
 
         {error && <div className="alert alert-error">{error}</div>}
@@ -362,7 +396,9 @@ export default function App() {
             <div className="grid-kpis">
               <div className="card">
                 <div className="kpi-label">Published Workflows</div>
-                <div className="kpi-value">{workflows.filter((w) => w.status === 'PUBLISHED').length}</div>
+                <div className="kpi-value">
+                  {workflows.filter((w) => w.status === 'PUBLISHED').length}
+                </div>
               </div>
               <div className="card">
                 <div className="kpi-label">Active / Waiting Cases</div>
@@ -374,29 +410,48 @@ export default function App() {
               </div>
               <div className="card">
                 <div className="kpi-label">Open Incidents</div>
-                <div className="kpi-value" style={{ color: openIncidentsCount > 0 ? '#fca5a5' : '#6ee7b7' }}>
+                <div
+                  className="kpi-value"
+                  style={{ color: openIncidentsCount > 0 ? '#fca5a5' : '#6ee7b7' }}
+                >
                   {openIncidentsCount}
                 </div>
               </div>
               <div className="card">
-                <div className="kpi-label">Registered Connectors</div>
+                <div className="kpi-label">Dynamic Connectors</div>
                 <div className="kpi-value">{connectors.length}</div>
               </div>
             </div>
 
             <div className="split">
               <div className="card">
-                <h3 style={{ marginTop: 0 }}>Quick-Start a Business Case</h3>
-                <p style={{ fontSize: 13, color: 'var(--muted)' }}>
-                  Select any published workflow to fill its dynamic Kissflow intake form and launch a live instance.
-                </p>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <h3 style={{ marginTop: 0 }}>Published Workflows</h3>
+                  <button
+                    className="btn btn-primary"
+                    onClick={() => {
+                      setDesignerTarget(null);
+                      setDesignerKeyCounter((c) => c + 1);
+                      setTab('designer');
+                    }}
+                  >
+                    <Plus size={14} /> New Flow
+                  </button>
+                </div>
                 {workflows
                   .filter((w) => w.status === 'PUBLISHED')
                   .map((wf) => (
-                    <div key={wf.id} className="list-item" onClick={() => { setSelectedWf(wf); setTab('workflows'); }}>
+                    <div
+                      key={wf.id}
+                      className="list-item"
+                      onClick={() => {
+                        setSelectedWf(wf);
+                        setTab('workflows');
+                      }}
+                    >
                       <div style={{ fontWeight: 700, fontSize: 14 }}>{wf.name}</div>
                       <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>
-                        key: <code>{wf.key}</code> · v{wf.version} · {wf.definition.nodes.length} steps
+                        <code>{wf.key}</code> · v{wf.version} · {wf.definition.nodes.length} steps
                       </div>
                     </div>
                   ))}
@@ -432,73 +487,38 @@ export default function App() {
 
         {tab === 'workflows' && (
           <div className="split">
-            <div>
-              <div className="card" style={{ marginBottom: 16 }}>
-                <h3 style={{ marginTop: 0 }}>Workflow Definitions</h3>
-                {workflows.map((wf) => (
-                  <div
-                    key={wf.id}
-                    className={`list-item ${selectedWf?.id === wf.id ? 'selected' : ''}`}
-                    onClick={() => {
-                      setSelectedWf(wf);
-                      setIntakeVars({});
-                    }}
-                  >
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <strong>{wf.name}</strong>
-                      <span className={`badge ${statusBadge(wf.status)}`}>{wf.status}</span>
-                    </div>
-                    <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>
-                      <code>{wf.key}</code> v{wf.version}
-                    </div>
+            <div className="card">
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                <h3 style={{ margin: 0 }}>All Versions</h3>
+                <button
+                  className="btn btn-primary"
+                  onClick={() => {
+                    setDesignerTarget(null);
+                    setDesignerKeyCounter((c) => c + 1);
+                    setTab('designer');
+                  }}
+                >
+                  <Plus size={14} /> Designer
+                </button>
+              </div>
+              {workflows.map((wf) => (
+                <div
+                  key={wf.id}
+                  className={`list-item ${selectedWf?.id === wf.id ? 'selected' : ''}`}
+                  onClick={() => {
+                    setSelectedWf(wf);
+                    setIntakeVars({});
+                  }}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <strong>{wf.name}</strong>
+                    <span className={`badge ${statusBadge(wf.status)}`}>{wf.status}</span>
                   </div>
-                ))}
-              </div>
-
-              <div className="card">
-                <h3 style={{ marginTop: 0 }}>
-                  <Plus size={15} /> Create Dynamic Workflow
-                </h3>
-                <div style={{ display: 'grid', gap: 10 }}>
-                  <input
-                    className="input"
-                    placeholder="Workflow key (e.g. vendor-onboarding)"
-                    value={newWfKey}
-                    onChange={(e) => setNewWfKey(e.target.value)}
-                  />
-                  <input
-                    className="input"
-                    placeholder="Workflow name"
-                    value={newWfName}
-                    onChange={(e) => setNewWfName(e.target.value)}
-                  />
-                  <textarea
-                    className="textarea"
-                    rows={10}
-                    value={newWfDefJson}
-                    onChange={(e) => setNewWfDefJson(e.target.value)}
-                  />
-                  <button
-                    className="btn btn-primary"
-                    onClick={async () => {
-                      try {
-                        const created = await api.createWorkflow({
-                          key: newWfKey,
-                          name: newWfName,
-                          definition: JSON.parse(newWfDefJson),
-                        });
-                        await api.publishWorkflow(created.id);
-                        notify(`Created & published '${created.key}' v${created.version}`);
-                        await refreshAll();
-                      } catch (err) {
-                        setError(err instanceof Error ? err.message : 'Failed to create workflow');
-                      }
-                    }}
-                  >
-                    Save & Publish Workflow
-                  </button>
+                  <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>
+                    <code>{wf.key}</code> v{wf.version}
+                  </div>
                 </div>
-              </div>
+              ))}
             </div>
 
             {selectedWf && (
@@ -509,18 +529,31 @@ export default function App() {
                       <h3 style={{ margin: 0 }}>{selectedWf.name}</h3>
                       <div style={{ fontSize: 12, color: 'var(--muted)' }}>{selectedWf.description}</div>
                     </div>
-                    {selectedWf.status === 'DRAFT' && (
+                    <div style={{ display: 'flex', gap: 8 }}>
                       <button
-                        className="btn btn-success"
-                        onClick={async () => {
-                          await api.publishWorkflow(selectedWf.id);
-                          notify(`Published ${selectedWf.key}`);
-                          await refreshAll();
+                        className="btn"
+                        onClick={() => {
+                          setDesignerTarget(selectedWf);
+                          setDesignerKeyCounter((c) => c + 1);
+                          setTab('designer');
                         }}
                       >
-                        Publish Version
+                        <Pencil size={13} />{' '}
+                        {selectedWf.status === 'DRAFT' ? 'Edit in Designer' : 'Clone as New Version'}
                       </button>
-                    )}
+                      {selectedWf.status === 'DRAFT' && (
+                        <button
+                          className="btn btn-success"
+                          onClick={async () => {
+                            await api.publishWorkflow(selectedWf.id);
+                            notify(`Published ${selectedWf.key}`);
+                            await refreshAll();
+                          }}
+                        >
+                          Publish Version
+                        </button>
+                      )}
+                    </div>
                   </div>
 
                   <WorkflowGraphView
@@ -532,35 +565,107 @@ export default function App() {
                 {selectedWf.status === 'PUBLISHED' && (
                   <div className="card">
                     <h3 style={{ marginTop: 0 }}>
-                      <Play size={15} /> Launch New Instance ({selectedWf.key})
+                      <Play size={15} /> Launch Instance ({selectedWf.key})
                     </h3>
                     <DynamicForm
                       fields={selectedWf.definition.intakeFormSchema?.fields}
                       values={intakeVars}
                       onChange={setIntakeVars}
                     />
-                    <button
-                      className="btn btn-primary"
-                      style={{ marginTop: 12 }}
-                      onClick={async () => {
-                        try {
-                          const inst = await api.startInstance(selectedWf.key, intakeVars, intakeVars);
-                          notify(`Started instance ${inst.id}`);
-                          await refreshAll();
-                          await loadCaseDetails(inst.id);
-                          setTab('cases');
-                        } catch (err) {
-                          setError(err instanceof Error ? err.message : 'Failed to start instance');
-                        }
-                      }}
-                    >
-                      <Play size={14} /> Start Case / Instance
-                    </button>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginTop: 12, alignItems: 'center' }}>
+                      <button
+                        className="btn btn-primary"
+                        onClick={async () => {
+                          try {
+                            const inst = await api.startInstance(selectedWf.key, intakeVars, intakeVars);
+                            notify(`Started instance ${inst.id}`);
+                            await refreshAll();
+                            await loadCaseDetails(inst.id);
+                            setTab('cases');
+                          } catch (err) {
+                            setError(err instanceof Error ? err.message : 'Failed to start instance');
+                          }
+                        }}
+                      >
+                        <Play size={14} /> Start via API
+                      </button>
+
+                      {selectedWf.webhookPath && (
+                        <>
+                          <input
+                            className="input"
+                            style={{ width: 220 }}
+                            value={webhookSecretInput}
+                            onChange={(e) => setWebhookSecretInput(e.target.value)}
+                            placeholder="x-webhook-secret"
+                          />
+                          <button
+                            className="btn"
+                            onClick={async () => {
+                              try {
+                                const res = await api.triggerWebhook(
+                                  selectedWf.webhookPath!,
+                                  intakeVars,
+                                  webhookSecretInput || undefined,
+                                );
+                                notify(`Webhook accepted! Instance ${res.instanceId}`);
+                                await refreshAll();
+                                await loadCaseDetails(res.instanceId);
+                                setTab('cases');
+                              } catch (err) {
+                                setError(err instanceof Error ? err.message : 'Webhook failed');
+                              }
+                            }}
+                          >
+                            <Webhook size={14} /> Trigger Webhook (/{selectedWf.webhookPath})
+                          </button>
+                        </>
+                      )}
+                    </div>
                   </div>
                 )}
               </div>
             )}
           </div>
+        )}
+
+        {tab === 'designer' && (
+          <WorkflowDesigner
+            key={designerKeyCounter}
+            connectors={connectors}
+            credentials={credentials}
+            workflows={workflows}
+            editingWorkflow={designerTarget}
+            onSaveDraft={async (payload) => {
+              const res = payload.id
+                ? await api.updateWorkflow(payload.id, {
+                    name: payload.name,
+                    description: payload.description,
+                    definition: payload.definition,
+                    webhookSecret: payload.webhookSecret,
+                  })
+                : await api.createWorkflow({
+                    key: payload.key,
+                    name: payload.name,
+                    description: payload.description,
+                    definition: payload.definition,
+                    webhookSecret: payload.webhookSecret,
+                  });
+              notify(`Saved workflow draft '${res.key}' v${res.version}`);
+              await refreshAll();
+              return res;
+            }}
+            onPublish={async (id) => {
+              const pub = await api.publishWorkflow(id);
+              notify(`Published '${pub.key}' v${pub.version}`);
+              await refreshAll();
+            }}
+            onLaunch={(key) => {
+              const found = workflows.find((w) => w.key === key && w.status === 'PUBLISHED');
+              if (found) setSelectedWf(found);
+              setTab('workflows');
+            }}
+          />
         )}
 
         {tab === 'cases' && (
@@ -628,7 +733,23 @@ export default function App() {
                     </div>
                   )}
 
-                  <h4 style={{ marginBottom: 8 }}>Step Execution Trace</h4>
+                  {selectedCaseWorkflow && (
+                    <div style={{ marginTop: 12 }}>
+                      <h4 style={{ marginBottom: 8 }}>Live Execution Topology</h4>
+                      <WorkflowGraphView
+                        nodes={selectedCaseWorkflow.definition.nodes}
+                        edges={selectedCaseWorkflow.definition.edges}
+                        activeNodeIds={selectedTrace.tokens
+                          .filter((t) => t.status === 'ACTIVE' || t.status === 'WAITING')
+                          .map((t) => t.currentNodeId)}
+                        completedNodeIds={selectedTrace.steps
+                          .filter((s) => s.status === 'COMPLETED')
+                          .map((s) => s.nodeId)}
+                      />
+                    </div>
+                  )}
+
+                  <h4 style={{ marginBottom: 8, marginTop: 16 }}>Step Execution Trace</h4>
                   <div style={{ display: 'grid', gap: 8 }}>
                     {selectedTrace.steps.map((s) => (
                       <div
@@ -647,7 +768,9 @@ export default function App() {
                           <strong>{s.nodeName}</strong> <span className="badge">{s.nodeType}</span>
                         </div>
                         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                          {s.durationMs !== null && <span style={{ color: 'var(--muted)' }}>{s.durationMs}ms</span>}
+                          {s.durationMs !== null && (
+                            <span style={{ color: 'var(--muted)' }}>{s.durationMs}ms</span>
+                          )}
                           <span className={`badge ${statusBadge(s.status)}`}>{s.status}</span>
                         </div>
                       </div>
@@ -701,7 +824,10 @@ export default function App() {
                             <button
                               className="btn btn-primary"
                               onClick={async () => {
-                                const tok = selectedTrace.tokens[0];
+                                const tok =
+                                  selectedTrace.tokens.find(
+                                    (t) => t.status === 'WAITING' || t.status === 'ACTIVE',
+                                  ) ?? selectedTrace.tokens[0];
                                 if (!tok) return;
                                 try {
                                   await api.moveToken(selectedCase.instance.id, tok.id, jumpTarget);
@@ -775,14 +901,20 @@ export default function App() {
                 </div>
               </div>
             ) : (
-              <div className="card">Select an instance on the left to inspect its Kissflow case view and execution trace.</div>
+              <div className="card">
+                Select an instance on the left to inspect its Kissflow case view, live topology, and execution trace.
+              </div>
             )}
           </div>
         )}
 
         {tab === 'tasks' && (
           <div style={{ display: 'grid', gap: 16 }}>
-            {tasks.length === 0 && <div className="card">No user tasks found. Launch a workflow with an approval step to see tasks here.</div>}
+            {tasks.length === 0 && (
+              <div className="card">
+                No user tasks found. Launch a workflow with an approval step to see tasks here.
+              </div>
+            )}
             {tasks.map((t) => {
               const formState = taskForms[t.id] ?? {};
               const isActionable = t.status === 'OPEN' || t.status === 'CLAIMED';
@@ -936,7 +1068,7 @@ export default function App() {
 
             <div className="card">
               <h3 style={{ marginTop: 0 }}>
-                <Cpu size={15} /> Polyglot External Service Task Worker Simulator
+                <Cpu size={15} /> Polyglot External Service Task Worker
               </h3>
               <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
                 <input
@@ -964,17 +1096,32 @@ export default function App() {
                   <pre style={{ fontSize: 11, color: 'var(--muted)', overflowX: 'auto' }}>
                     {JSON.stringify(et.variables, null, 2)}
                   </pre>
-                  <button
-                    className="btn btn-success"
-                    onClick={async () => {
-                      await api.completeExternalTask(et.id, 'studio-worker', { completedBy: 'studio-worker' });
-                      notify(`Completed external task ${et.id}`);
-                      setExternalTasks((prev) => prev.filter((x) => x.id !== et.id));
-                      await refreshAll();
-                    }}
-                  >
-                    Complete External Task
-                  </button>
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <button
+                      className="btn btn-success"
+                      onClick={async () => {
+                        await api.completeExternalTask(et.id, 'studio-worker', {
+                          completedBy: 'studio-worker',
+                        });
+                        notify(`Completed external task ${et.id}`);
+                        setExternalTasks((prev) => prev.filter((x) => x.id !== et.id));
+                        await refreshAll();
+                      }}
+                    >
+                      Complete
+                    </button>
+                    <button
+                      className="btn btn-danger"
+                      onClick={async () => {
+                        await api.failExternalTask(et.id, 'studio-worker', 'Simulated worker failure');
+                        notify(`Reported failure on external task ${et.id}`);
+                        setExternalTasks((prev) => prev.filter((x) => x.id !== et.id));
+                        await refreshAll();
+                      }}
+                    >
+                      Fail / Retry
+                    </button>
+                  </div>
                 </div>
               ))}
             </div>
@@ -983,92 +1130,219 @@ export default function App() {
 
         {tab === 'connectors' && (
           <div className="split">
-            <div className="card">
-              <h3 style={{ marginTop: 0 }}>Register Custom HTTP Connector</h3>
-              <div style={{ display: 'grid', gap: 10, marginBottom: 24 }}>
-                <input
-                  className="input"
-                  value={connType}
-                  onChange={(e) => setConnType(e.target.value)}
-                  placeholder="connector.my_service"
-                />
-                <input
-                  className="input"
-                  value={connTitle}
-                  onChange={(e) => setConnTitle(e.target.value)}
-                  placeholder="Display title"
-                />
-                <input
-                  className="input"
-                  value={connUrl}
-                  onChange={(e) => setConnUrl(e.target.value)}
-                  placeholder="https://api.example.com/hook"
-                />
-                <button
-                  className="btn btn-primary"
-                  onClick={async () => {
-                    try {
-                      await api.registerConnector({
-                        type: connType,
-                        title: connTitle,
-                        description: 'Runtime custom HTTP connector',
-                        endpointUrl: connUrl,
-                      });
-                      notify(`Registered dynamic connector '${connType}'`);
-                      await refreshAll();
-                    } catch (err) {
-                      setError(err instanceof Error ? err.message : 'Registration failed');
-                    }
-                  }}
-                >
-                  Register Connector
-                </button>
+            <div style={{ display: 'grid', gap: 16 }}>
+              <div className="card">
+                <h3 style={{ marginTop: 0 }}>Register Custom HTTP Connector</h3>
+                <div style={{ display: 'grid', gap: 10 }}>
+                  <input
+                    className="input"
+                    value={connType}
+                    onChange={(e) => setConnType(e.target.value)}
+                    placeholder="connector.my_service"
+                  />
+                  <input
+                    className="input"
+                    value={connTitle}
+                    onChange={(e) => setConnTitle(e.target.value)}
+                    placeholder="Display title"
+                  />
+                  <input
+                    className="input"
+                    value={connUrl}
+                    onChange={(e) => setConnUrl(e.target.value)}
+                    placeholder="https://api.example.com/hook"
+                  />
+                  <button
+                    className="btn btn-primary"
+                    onClick={async () => {
+                      try {
+                        await api.registerConnector({
+                          type: connType,
+                          title: connTitle,
+                          description: 'Runtime custom HTTP connector',
+                          endpointUrl: connUrl,
+                        });
+                        notify(`Registered dynamic connector '${connType}'`);
+                        await refreshAll();
+                      } catch (err) {
+                        setError(err instanceof Error ? err.message : 'Registration failed');
+                      }
+                    }}
+                  >
+                    Register Connector
+                  </button>
+                </div>
               </div>
 
-              <h3 style={{ marginTop: 0 }}>
-                <KeyRound size={15} /> AES-256-GCM Credential Vault
-              </h3>
-              <div style={{ display: 'grid', gap: 8, marginBottom: 12 }}>
-                <input
-                  className="input"
-                  value={credName}
-                  onChange={(e) => setCredName(e.target.value)}
-                  placeholder="Credential name"
-                />
-                <input
-                  className="input"
-                  type="password"
-                  value={credToken}
-                  onChange={(e) => setCredToken(e.target.value)}
-                  placeholder="Bearer secret token"
-                />
-                <button
-                  className="btn btn-primary"
-                  onClick={async () => {
-                    await api.createCredential({
-                      name: credName,
-                      type: 'bearer',
-                      secretData: { token: credToken },
-                    });
-                    setCredToken('');
-                    notify(`Encrypted & stored credential '${credName}'`);
-                    await refreshAll();
-                  }}
-                >
-                  Encrypt & Store Secret
-                </button>
-              </div>
-              {credentials.map((c) => (
-                <div key={c.id} className="list-item">
-                  <strong>{c.name}</strong> <span className="badge">{c.type}</span>{' '}
-                  <span className="badge badge-green">key:{c.keyId}</span>
+              <div className="card">
+                <h3 style={{ marginTop: 0 }}>
+                  <KeyRound size={15} /> AES-256-GCM Credential Vault
+                </h3>
+                <div style={{ display: 'grid', gap: 8, marginBottom: 12 }}>
+                  <input
+                    className="input"
+                    value={credName}
+                    onChange={(e) => setCredName(e.target.value)}
+                    placeholder="Credential name"
+                  />
+                  <input
+                    className="input"
+                    type="password"
+                    value={credToken}
+                    onChange={(e) => setCredToken(e.target.value)}
+                    placeholder="Bearer secret token"
+                  />
+                  <button
+                    className="btn btn-primary"
+                    onClick={async () => {
+                      await api.createCredential({
+                        name: credName,
+                        type: 'bearer',
+                        secretData: { token: credToken },
+                      });
+                      setCredToken('');
+                      notify(`Encrypted & stored credential '${credName}'`);
+                      await refreshAll();
+                    }}
+                  >
+                    Encrypt & Store Secret
+                  </button>
                 </div>
-              ))}
+                {credentials.map((c) => (
+                  <div
+                    key={c.id}
+                    className="list-item"
+                    style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
+                  >
+                    <div>
+                      <strong>{c.name}</strong> <span className="badge">{c.type}</span>{' '}
+                      <span className="badge badge-green">key:{c.keyId}</span>
+                    </div>
+                    <button
+                      className="btn btn-danger"
+                      onClick={async () => {
+                        await api.deleteCredential(c.id);
+                        notify(`Deleted credential '${c.name}'`);
+                        await refreshAll();
+                      }}
+                    >
+                      <Trash2 size={12} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+
+              {user?.role === 'ADMIN' && (
+                <div className="card">
+                  <h3 style={{ marginTop: 0 }}>
+                    <UserPlus size={15} /> Admin: Users & Service API Keys
+                  </h3>
+                  <div style={{ display: 'grid', gap: 8, marginBottom: 14 }}>
+                    <input
+                      className="input"
+                      placeholder="New user email"
+                      value={regEmail}
+                      onChange={(e) => setRegEmail(e.target.value)}
+                    />
+                    <input
+                      className="input"
+                      placeholder="Full name"
+                      value={regName}
+                      onChange={(e) => setRegName(e.target.value)}
+                    />
+                    <input
+                      className="input"
+                      type="password"
+                      placeholder="Password (min 8 chars)"
+                      value={regPassword}
+                      onChange={(e) => setRegPassword(e.target.value)}
+                    />
+                    <select
+                      className="select"
+                      value={regRole}
+                      onChange={(e) => setRegRole(e.target.value as UserInfo['role'])}
+                    >
+                      {(['OPERATOR', 'BUILDER', 'VIEWER', 'ADMIN'] as const).map((r) => (
+                        <option key={r} value={r}>
+                          {r}
+                        </option>
+                      ))}
+                    </select>
+                    <button
+                      className="btn btn-primary"
+                      onClick={async () => {
+                        try {
+                          const u = await api.registerUser({
+                            email: regEmail,
+                            name: regName,
+                            password: regPassword,
+                            role: regRole,
+                          });
+                          setRegEmail('');
+                          setRegName('');
+                          setRegPassword('');
+                          notify(`Created user '${u.email}' (${u.role})`);
+                        } catch (err) {
+                          setError(err instanceof Error ? err.message : 'Create user failed');
+                        }
+                      }}
+                    >
+                      Create RBAC User
+                    </button>
+                  </div>
+
+                  <div style={{ display: 'grid', gap: 8 }}>
+                    <input
+                      className="input"
+                      placeholder="Service API key name"
+                      value={apiKeyName}
+                      onChange={(e) => setApiKeyName(e.target.value)}
+                    />
+                    <select
+                      className="select"
+                      value={apiKeyRole}
+                      onChange={(e) => setApiKeyRole(e.target.value as UserInfo['role'])}
+                    >
+                      {(['OPERATOR', 'BUILDER', 'VIEWER', 'ADMIN'] as const).map((r) => (
+                        <option key={r} value={r}>
+                          {r}
+                        </option>
+                      ))}
+                    </select>
+                    <button
+                      className="btn"
+                      onClick={async () => {
+                        try {
+                          const res = await api.createApiKey({ name: apiKeyName, role: apiKeyRole });
+                          setIssuedApiKey(res.rawKey);
+                          setApiKeyName('');
+                          notify(`Issued API key ${res.keyPrefix}...`);
+                        } catch (err) {
+                          setError(err instanceof Error ? err.message : 'Issue API key failed');
+                        }
+                      }}
+                    >
+                      Issue Service API Key
+                    </button>
+                    {issuedApiKey && (
+                      <div className="alert alert-ok" style={{ wordBreak: 'break-all' }}>
+                        Copy once: <code>{issuedApiKey}</code>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
 
             <div className="card">
               <h3 style={{ marginTop: 0 }}>Available Dynamic Connectors & Step Catalog</h3>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: 12 }}>
+              <div
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))',
+                  gap: 12,
+                }}
+              >
                 {connectors.map((c) => (
                   <div
                     key={c.type}
@@ -1098,4 +1372,3 @@ export default function App() {
     </div>
   );
 }
-

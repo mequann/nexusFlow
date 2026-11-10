@@ -10,6 +10,7 @@ export interface WorkflowNode {
   name: string;
   type: string;
   stage?: string;
+  position?: { x: number; y: number };
   config: Record<string, unknown>;
   compensateNodeId?: string;
   isCompensationHandler?: boolean;

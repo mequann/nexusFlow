@@ -62,6 +62,7 @@ const NodeSchema = z.object({
       'Node type must be a namespaced connector identifier (e.g. action.http, external.erp_sync)',
     ),
   stage: z.string().optional(),
+  position: z.object({ x: z.number(), y: z.number() }).optional(),
   config: z.record(z.unknown()).default({}),
   retryPolicy: RetryPolicySchema.optional(),
   compensateNodeId: z.string().optional(),

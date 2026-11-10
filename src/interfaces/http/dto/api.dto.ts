@@ -197,6 +197,9 @@ export class WorkflowNodeDto {
   @ApiPropertyOptional({ type: String, example: 'Executive Approval' })
   stage?: string;
 
+  @ApiPropertyOptional({ type: Object, example: { x: 320, y: 140 } })
+  position?: { x: number; y: number };
+
   @ApiProperty({
     type: Object,
     example: {

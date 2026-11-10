@@ -73,8 +73,51 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(payload),
     }),
+  updateWorkflow: (
+    id: string,
+    payload: {
+      name?: string;
+      description?: string;
+      definition?: WorkflowRecord['definition'];
+      webhookSecret?: string;
+    },
+  ) =>
+    request<WorkflowRecord>(`/api/v1/workflows/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(payload),
+    }),
   publishWorkflow: (id: string) =>
     request<WorkflowRecord>(`/api/v1/workflows/${id}/publish`, { method: 'POST' }),
+
+  triggerWebhook: (path: string, body: Record<string, unknown>, secret?: string) =>
+    request<{ accepted: boolean; instanceId: string; workflowKey: string; workflowVersion: number }>(
+      `/webhooks/${path.split('/').map(encodeURIComponent).join('%2F')}`,
+      {
+        method: 'POST',
+        headers: secret ? { 'x-webhook-secret': secret } : undefined,
+        body: JSON.stringify(body),
+      },
+    ),
+
+  registerUser: (payload: {
+    email: string;
+    name: string;
+    password: string;
+    role: UserInfo['role'];
+  }) =>
+    request<UserInfo>('/api/v1/auth/register', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+
+  createApiKey: (payload: { name: string; role: UserInfo['role']; expiresInDays?: number }) =>
+    request<{ id: string; rawKey: string; keyPrefix: string; role: UserInfo['role'] }>(
+      '/api/v1/auth/api-keys',
+      {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      },
+    ),
 
   startInstance: (key: string, variables: Record<string, unknown>, payload: Record<string, unknown> = {}) =>
     request<WorkflowInstance>(`/api/v1/workflows/${encodeURIComponent(key)}/instances`, {
@@ -157,6 +200,8 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(payload),
     }),
+  deleteCredential: (id: string) =>
+    request<void>(`/api/v1/credentials/${id}`, { method: 'DELETE' }),
 
   fetchAndLockExternalTasks: (workerId: string, topics: string[]) =>
     request<{ items: ExternalTask[] }>('/api/v1/external-tasks/fetch-and-lock', {
@@ -167,6 +212,16 @@ export const api = {
     request<ExternalTask>(`/api/v1/external-tasks/${id}/complete`, {
       method: 'POST',
       body: JSON.stringify({ workerId, variables }),
+    }),
+  failExternalTask: (
+    id: string,
+    workerId: string,
+    errorMessage: string,
+    retriesRemaining?: number,
+  ) =>
+    request<ExternalTask>(`/api/v1/external-tasks/${id}/failure`, {
+      method: 'POST',
+      body: JSON.stringify({ workerId, errorMessage, retriesRemaining }),
     }),
 };
 
