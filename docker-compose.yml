@@ -1,0 +1,83 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: nexusflow
+      POSTGRES_PASSWORD: nexusflow
+      POSTGRES_DB: nexusflow
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U nexusflow"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  api:
+    build: .
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      STORAGE_DRIVER: postgres
+      DATABASE_URL: postgres://nexusflow:nexusflow@postgres:5432/nexusflow
+      REDIS_URL: redis://redis:6379
+      ENABLE_EMBEDDED_WORKERS: "false"
+      JWT_SECRET: prod-change-me-super-secret-jwt-key-32chars
+      VAULT_MASTER_KEY_V1: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  worker:
+    build: .
+    command: ["node", "dist/worker.js"]
+    environment:
+      NODE_ENV: production
+      STORAGE_DRIVER: postgres
+      DATABASE_URL: postgres://nexusflow:nexusflow@postgres:5432/nexusflow
+      REDIS_URL: redis://redis:6379
+      JWT_SECRET: prod-change-me-super-secret-jwt-key-32chars
+      VAULT_MASTER_KEY_V1: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  prometheus:
+    image: prom/prometheus:latest
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    depends_on:
+      - api
+
+  grafana:
+    image: grafana/grafana:latest
+    ports:
+      - "3001:3000"
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: admin
+    depends_on:
+      - prometheus
+
+volumes:
+  pgdata:
+

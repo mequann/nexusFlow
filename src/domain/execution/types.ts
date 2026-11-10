@@ -1,0 +1,164 @@
+export type InstanceStatus =
+  | 'PENDING'
+  | 'RUNNING'
+  | 'WAITING'
+  | 'INCIDENT_OPEN'
+  | 'COMPENSATING'
+  | 'COMPENSATED'
+  | 'COMPLETED'
+  | 'FAILED'
+  | 'CANCELLED';
+
+export type TokenStatus = 'ACTIVE' | 'WAITING' | 'COMPLETED' | 'FAILED' | 'CANCELLED';
+
+export type StepStatus =
+  | 'RUNNING'
+  | 'WAITING'
+  | 'COMPLETED'
+  | 'FAILED'
+  | 'SKIPPED'
+  | 'COMPENSATED'
+  | 'COMPENSATION_FAILED';
+
+export type UserTaskStatus =
+  | 'OPEN'
+  | 'CLAIMED'
+  | 'COMPLETED'
+  | 'REJECTED'
+  | 'CANCELLED'
+  | 'EXPIRED';
+
+export type SubscriptionType = 'MESSAGE' | 'TIMER';
+export type SubscriptionStatus = 'ACTIVE' | 'TRIGGERED' | 'CANCELLED';
+
+export type IncidentStatus = 'OPEN' | 'RESOLVED' | 'DISMISSED';
+
+export type JobType = 'EXECUTE_NODE' | 'RESUME_TOKEN' | 'COMPENSATE';
+export type JobStatus = 'PENDING' | 'PROCESSING' | 'COMPLETED' | 'DEAD';
+
+export interface WorkflowInstance {
+  id: string;
+  workflowId: string;
+  workflowKey: string;
+  workflowVersion: number;
+  status: InstanceStatus;
+  triggerType: string;
+  triggerPayload: Record<string, unknown>;
+  variables: Record<string, unknown>;
+  correlationKey: string | null;
+  startedBy: string | null;
+  occVersion: number;
+  startedAt: Date;
+  completedAt: Date | null;
+  updatedAt: Date;
+}
+
+export interface ExecutionToken {
+  id: string;
+  instanceId: string;
+  currentNodeId: string;
+  parentTokenId: string | null;
+  joinGroupId: string | null;
+  status: TokenStatus;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface StepExecution {
+  id: string;
+  instanceId: string;
+  tokenId: string;
+  nodeId: string;
+  nodeType: string;
+  nodeName: string;
+  status: StepStatus;
+  attempt: number;
+  input: Record<string, unknown>;
+  output: Record<string, unknown> | null;
+  errorMessage: string | null;
+  compensateNodeId: string | null;
+  startedAt: Date;
+  finishedAt: Date | null;
+  durationMs: number | null;
+}
+
+export interface UserTask {
+  id: string;
+  instanceId: string;
+  tokenId: string;
+  nodeId: string;
+  title: string;
+  description: string;
+  candidateGroup: string | null;
+  assignee: string | null;
+  status: UserTaskStatus;
+  formSchema: Record<string, unknown>;
+  payload: Record<string, unknown>;
+  resolution: Record<string, unknown> | null;
+  dueAt: Date | null;
+  createdAt: Date;
+  updatedAt: Date;
+  completedAt: Date | null;
+}
+
+export interface EventSubscription {
+  id: string;
+  instanceId: string;
+  tokenId: string;
+  nodeId: string;
+  type: SubscriptionType;
+  messageName: string | null;
+  correlationKey: string | null;
+  triggerAt: Date | null;
+  status: SubscriptionStatus;
+  payload: Record<string, unknown> | null;
+  createdAt: Date;
+  triggeredAt: Date | null;
+}
+
+export interface Incident {
+  id: string;
+  instanceId: string;
+  tokenId: string;
+  stepExecutionId: string | null;
+  nodeId: string;
+  incidentType: string;
+  message: string;
+  stackTrace: string | null;
+  payloadSnapshot: Record<string, unknown>;
+  status: IncidentStatus;
+  resolvedBy: string | null;
+  resolutionNote: string | null;
+  createdAt: Date;
+  resolvedAt: Date | null;
+}
+
+export interface ExecutionJob {
+  id: string;
+  instanceId: string;
+  tokenId: string;
+  nodeId: string;
+  jobType: JobType;
+  payload: Record<string, unknown>;
+  status: JobStatus;
+  attempts: number;
+  maxAttempts: number;
+  availableAt: Date;
+  lockedBy: string | null;
+  lockedAt: Date | null;
+  lastError: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface OutboxEvent {
+  id: string;
+  aggregateType: string;
+  aggregateId: string;
+  eventType: string;
+  payload: Record<string, unknown>;
+  status: 'PENDING' | 'PUBLISHED' | 'FAILED';
+  attempts: number;
+  createdAt: Date;
+  publishedAt: Date | null;
+}

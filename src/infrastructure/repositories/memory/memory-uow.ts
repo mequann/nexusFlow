@@ -1,0 +1,523 @@
+import { ConflictError, NotFoundError } from '../../../domain/errors.js';
+import type {
+  EventSubscription,
+  ExecutionJob,
+  ExecutionToken,
+  Incident,
+  OutboxEvent,
+  StepExecution,
+  UserTask,
+  WorkflowInstance,
+} from '../../../domain/execution/types.js';
+import type {
+  ICredentialRepository,
+  IIdempotencyRepository,
+  IIncidentRepository,
+  IInstanceRepository,
+  IJobRepository,
+  IOutboxRepository,
+  IRepositoryRegistry,
+  IStepRepository,
+  ISubscriptionRepository,
+  ITokenRepository,
+  IUnitOfWork,
+  IUserRepository,
+  IUserTaskRepository,
+  IWorkflowRepository,
+  IdempotencyRecord,
+} from '../../../domain/ports/repositories.js';
+import type { ApiKeyRecord, CredentialRecord, UserRecord } from '../../../domain/security/types.js';
+import type { WorkflowDefinitionRecord } from '../../../domain/workflow/types.js';
+
+function clone<T>(obj: T): T {
+  return structuredClone(obj);
+}
+
+export class MemoryUnitOfWork implements IUnitOfWork {
+  private readonly workflowsMap = new Map<string, WorkflowDefinitionRecord>();
+  private readonly instancesMap = new Map<string, WorkflowInstance>();
+  private readonly tokensMap = new Map<string, ExecutionToken>();
+  private readonly stepsMap = new Map<string, StepExecution>();
+  private readonly userTasksMap = new Map<string, UserTask>();
+  private readonly subscriptionsMap = new Map<string, EventSubscription>();
+  private readonly incidentsMap = new Map<string, Incident>();
+  private readonly jobsMap = new Map<string, ExecutionJob>();
+  private readonly outboxMap = new Map<string, OutboxEvent>();
+  private readonly credentialsMap = new Map<string, CredentialRecord>();
+  private readonly usersMap = new Map<string, UserRecord>();
+  private readonly apiKeysMap = new Map<string, ApiKeyRecord>();
+  private readonly idempotencyMap = new Map<string, IdempotencyRecord>();
+
+  private txChain: Promise<unknown> = Promise.resolve();
+  public readonly repos: IRepositoryRegistry;
+
+  constructor() {
+    this.repos = this.createRegistry();
+  }
+
+  async runInTransaction<T>(fn: (repos: IRepositoryRegistry) => Promise<T>): Promise<T> {
+    const run = this.txChain.then(() => fn(this.repos));
+    this.txChain = run.catch(() => undefined);
+    return run;
+  }
+
+  async healthCheck(): Promise<boolean> {
+    return true;
+  }
+
+  async close(): Promise<void> {
+    // No external resources to close
+  }
+
+  private createRegistry(): IRepositoryRegistry {
+    const workflows: IWorkflowRepository = {
+      create: async (record) => {
+        for (const existing of this.workflowsMap.values()) {
+          if (existing.key === record.key && existing.version === record.version) {
+            throw new ConflictError(`Workflow '${record.key}' v${record.version} already exists`);
+          }
+        }
+        const saved = clone(record);
+        this.workflowsMap.set(saved.id, saved);
+        return clone(saved);
+      },
+      findById: async (id) => {
+        const found = this.workflowsMap.get(id);
+        return found ? clone(found) : null;
+      },
+      findLatestByKey: async (key, status) => {
+        const matches = [...this.workflowsMap.values()]
+          .filter((w) => w.key === key && (!status || w.status === status))
+          .sort((a, b) => b.version - a.version);
+        return matches[0] ? clone(matches[0]) : null;
+      },
+      findByKeyAndVersion: async (key, version) => {
+        for (const w of this.workflowsMap.values()) {
+          if (w.key === key && w.version === version) return clone(w);
+        }
+        return null;
+      },
+      findByWebhookPath: async (webhookPath) => {
+        const matches = [...this.workflowsMap.values()]
+          .filter((w) => w.status === 'PUBLISHED' && w.webhookPath === webhookPath)
+          .sort((a, b) => b.version - a.version);
+        return matches[0] ? clone(matches[0]) : null;
+      },
+      findDueCronWorkflows: async (now) => {
+        return [...this.workflowsMap.values()]
+          .filter(
+            (w) =>
+              w.status === 'PUBLISHED' &&
+              w.cronExpression !== null &&
+              w.cronNextRunAt !== null &&
+              w.cronNextRunAt.getTime() <= now.getTime(),
+          )
+          .map(clone);
+      },
+      list: async (filters) => {
+        return [...this.workflowsMap.values()]
+          .filter((w) => {
+            if (filters?.status && w.status !== filters.status) return false;
+            if (filters?.key && w.key !== filters.key) return false;
+            return true;
+          })
+          .sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime())
+          .map(clone);
+      },
+      update: async (record) => {
+        if (!this.workflowsMap.has(record.id)) {
+          throw new NotFoundError('Workflow', record.id);
+        }
+        const saved = clone(record);
+        this.workflowsMap.set(saved.id, saved);
+        return clone(saved);
+      },
+      getNextVersion: async (key) => {
+        let max = 0;
+        for (const w of this.workflowsMap.values()) {
+          if (w.key === key && w.version > max) max = w.version;
+        }
+        return max + 1;
+      },
+    };
+
+    const instances: IInstanceRepository = {
+      create: async (instance) => {
+        const saved = clone(instance);
+        this.instancesMap.set(saved.id, saved);
+        return clone(saved);
+      },
+      findById: async (id) => {
+        const found = this.instancesMap.get(id);
+        return found ? clone(found) : null;
+      },
+      list: async (filters) => {
+        const list = [...this.instancesMap.values()]
+          .filter((i) => {
+            if (filters?.status && i.status !== filters.status) return false;
+            if (filters?.workflowKey && i.workflowKey !== filters.workflowKey) return false;
+            return true;
+          })
+          .sort((a, b) => b.startedAt.getTime() - a.startedAt.getTime());
+        return list.slice(0, filters?.limit ?? 100).map(clone);
+      },
+      updateWithOcc: async (instance) => {
+        const current = this.instancesMap.get(instance.id);
+        if (!current) throw new NotFoundError('WorkflowInstance', instance.id);
+        if (current.occVersion !== instance.occVersion) {
+          throw new ConflictError(
+            `Optimistic concurrency conflict on instance '${instance.id}'`,
+          );
+        }
+        const next = clone(instance);
+        next.occVersion += 1;
+        next.updatedAt = new Date();
+        this.instancesMap.set(next.id, next);
+        return clone(next);
+      },
+    };
+
+    const tokens: ITokenRepository = {
+      create: async (token) => {
+        const saved = clone(token);
+        this.tokensMap.set(saved.id, saved);
+        return clone(saved);
+      },
+      findById: async (id) => {
+        const found = this.tokensMap.get(id);
+        return found ? clone(found) : null;
+      },
+      findByInstance: async (instanceId) => {
+        return [...this.tokensMap.values()]
+          .filter((t) => t.instanceId === instanceId)
+          .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())
+          .map(clone);
+      },
+      findWaitingAtNode: async (instanceId, nodeId) => {
+        return [...this.tokensMap.values()]
+          .filter(
+            (t) =>
+              t.instanceId === instanceId &&
+              t.currentNodeId === nodeId &&
+              t.status === 'WAITING',
+          )
+          .map(clone);
+      },
+      update: async (token) => {
+        if (!this.tokensMap.has(token.id)) {
+          throw new NotFoundError('ExecutionToken', token.id);
+        }
+        const saved = clone(token);
+        saved.updatedAt = new Date();
+        this.tokensMap.set(saved.id, saved);
+        return clone(saved);
+      },
+    };
+
+    const steps: IStepRepository = {
+      create: async (step) => {
+        const saved = clone(step);
+        this.stepsMap.set(saved.id, saved);
+        return clone(saved);
+      },
+      findById: async (id) => {
+        const found = this.stepsMap.get(id);
+        return found ? clone(found) : null;
+      },
+      findByInstance: async (instanceId) => {
+        return [...this.stepsMap.values()]
+          .filter((s) => s.instanceId === instanceId)
+          .sort((a, b) => a.startedAt.getTime() - b.startedAt.getTime())
+          .map(clone);
+      },
+      update: async (step) => {
+        if (!this.stepsMap.has(step.id)) throw new NotFoundError('StepExecution', step.id);
+        const saved = clone(step);
+        this.stepsMap.set(saved.id, saved);
+        return clone(saved);
+      },
+    };
+
+    const userTasks: IUserTaskRepository = {
+      create: async (task) => {
+        const saved = clone(task);
+        this.userTasksMap.set(saved.id, saved);
+        return clone(saved);
+      },
+      findById: async (id) => {
+        const found = this.userTasksMap.get(id);
+        return found ? clone(found) : null;
+      },
+      list: async (filters) => {
+        return [...this.userTasksMap.values()]
+          .filter((t) => {
+            if (filters?.status && t.status !== filters.status) return false;
+            if (filters?.assignee && t.assignee !== filters.assignee) return false;
+            if (filters?.candidateGroup && t.candidateGroup !== filters.candidateGroup) return false;
+            if (filters?.instanceId && t.instanceId !== filters.instanceId) return false;
+            return true;
+          })
+          .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+          .map(clone);
+      },
+      update: async (task) => {
+        if (!this.userTasksMap.has(task.id)) throw new NotFoundError('UserTask', task.id);
+        const saved = clone(task);
+        saved.updatedAt = new Date();
+        this.userTasksMap.set(saved.id, saved);
+        return clone(saved);
+      },
+    };
+
+    const subscriptions: ISubscriptionRepository = {
+      create: async (sub) => {
+        const saved = clone(sub);
+        this.subscriptionsMap.set(saved.id, saved);
+        return clone(saved);
+      },
+      findActiveMessage: async (messageName, correlationKey) => {
+        return [...this.subscriptionsMap.values()]
+          .filter(
+            (s) =>
+              s.status === 'ACTIVE' &&
+              s.type === 'MESSAGE' &&
+              s.messageName === messageName &&
+              (s.correlationKey === correlationKey || s.correlationKey === null),
+          )
+          .map(clone);
+      },
+      findDueTimers: async (now, limit = 50) => {
+        return [...this.subscriptionsMap.values()]
+          .filter(
+            (s) =>
+              s.status === 'ACTIVE' &&
+              s.type === 'TIMER' &&
+              s.triggerAt !== null &&
+              s.triggerAt.getTime() <= now.getTime(),
+          )
+          .sort((a, b) => (a.triggerAt?.getTime() ?? 0) - (b.triggerAt?.getTime() ?? 0))
+          .slice(0, limit)
+          .map(clone);
+      },
+      findByInstance: async (instanceId) => {
+        return [...this.subscriptionsMap.values()]
+          .filter((s) => s.instanceId === instanceId)
+          .map(clone);
+      },
+      update: async (sub) => {
+        if (!this.subscriptionsMap.has(sub.id)) {
+          throw new NotFoundError('EventSubscription', sub.id);
+        }
+        const saved = clone(sub);
+        this.subscriptionsMap.set(saved.id, saved);
+        return clone(saved);
+      },
+    };
+
+    const incidents: IIncidentRepository = {
+      create: async (incident) => {
+        const saved = clone(incident);
+        this.incidentsMap.set(saved.id, saved);
+        return clone(saved);
+      },
+      findById: async (id) => {
+        const found = this.incidentsMap.get(id);
+        return found ? clone(found) : null;
+      },
+      list: async (filters) => {
+        return [...this.incidentsMap.values()]
+          .filter((i) => {
+            if (filters?.status && i.status !== filters.status) return false;
+            if (filters?.instanceId && i.instanceId !== filters.instanceId) return false;
+            return true;
+          })
+          .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+          .map(clone);
+      },
+      update: async (incident) => {
+        if (!this.incidentsMap.has(incident.id)) throw new NotFoundError('Incident', incident.id);
+        const saved = clone(incident);
+        this.incidentsMap.set(saved.id, saved);
+        return clone(saved);
+      },
+    };
+
+    const jobs: IJobRepository = {
+      enqueue: async (job) => {
+        const saved = clone(job);
+        this.jobsMap.set(saved.id, saved);
+        return clone(saved);
+      },
+      claimNextBatch: async (workerId, limit, now) => {
+        const due = [...this.jobsMap.values()]
+          .filter(
+            (j) => j.status === 'PENDING' && j.availableAt.getTime() <= now.getTime(),
+          )
+          .sort((a, b) => a.availableAt.getTime() - b.availableAt.getTime())
+          .slice(0, limit);
+
+        for (const job of due) {
+          job.status = 'PROCESSING';
+          job.lockedBy = workerId;
+          job.lockedAt = now;
+          job.updatedAt = now;
+        }
+        return due.map(clone);
+      },
+      complete: async (jobId) => {
+        const job = this.jobsMap.get(jobId);
+        if (!job) return;
+        job.status = 'COMPLETED';
+        job.updatedAt = new Date();
+      },
+      reschedule: async (jobId, availableAt, attempts, lastError) => {
+        const job = this.jobsMap.get(jobId);
+        if (!job) return;
+        job.status = 'PENDING';
+        job.availableAt = availableAt;
+        job.attempts = attempts;
+        job.lastError = lastError;
+        job.lockedBy = null;
+        job.lockedAt = null;
+        job.updatedAt = new Date();
+      },
+      markDead: async (jobId, attempts, lastError) => {
+        const job = this.jobsMap.get(jobId);
+        if (!job) return;
+        job.status = 'DEAD';
+        job.attempts = attempts;
+        job.lastError = lastError;
+        job.updatedAt = new Date();
+      },
+    };
+
+    const outbox: IOutboxRepository = {
+      append: async (event) => {
+        const saved = clone(event);
+        this.outboxMap.set(saved.id, saved);
+        return clone(saved);
+      },
+      fetchPending: async (limit) => {
+        return [...this.outboxMap.values()]
+          .filter((e) => e.status === 'PENDING')
+          .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())
+          .slice(0, limit)
+          .map(clone);
+      },
+      markPublished: async (id, publishedAt) => {
+        const e = this.outboxMap.get(id);
+        if (!e) return;
+        e.status = 'PUBLISHED';
+        e.publishedAt = publishedAt;
+      },
+      markFailed: async (id) => {
+        const e = this.outboxMap.get(id);
+        if (!e) return;
+        e.attempts += 1;
+        if (e.attempts >= 5) e.status = 'FAILED';
+      },
+    };
+
+    const credentials: ICredentialRepository = {
+      create: async (record) => {
+        for (const c of this.credentialsMap.values()) {
+          if (c.name === record.name) {
+            throw new ConflictError(`Credential '${record.name}' already exists`);
+          }
+        }
+        const saved = clone(record);
+        this.credentialsMap.set(saved.id, saved);
+        return clone(saved);
+      },
+      findById: async (id) => {
+        const found = this.credentialsMap.get(id);
+        return found ? clone(found) : null;
+      },
+      findByName: async (name) => {
+        for (const c of this.credentialsMap.values()) {
+          if (c.name === name) return clone(c);
+        }
+        return null;
+      },
+      list: async () => [...this.credentialsMap.values()].map(clone),
+      update: async (record) => {
+        if (!this.credentialsMap.has(record.id)) {
+          throw new NotFoundError('Credential', record.id);
+        }
+        const saved = clone(record);
+        this.credentialsMap.set(saved.id, saved);
+        return clone(saved);
+      },
+      delete: async (id) => {
+        if (!this.credentialsMap.delete(id)) {
+          throw new NotFoundError('Credential', id);
+        }
+      },
+    };
+
+    const users: IUserRepository = {
+      create: async (user) => {
+        for (const u of this.usersMap.values()) {
+          if (u.email === user.email) {
+            throw new ConflictError(`User '${user.email}' already exists`);
+          }
+        }
+        const saved = clone(user);
+        this.usersMap.set(saved.id, saved);
+        return clone(saved);
+      },
+      findById: async (id) => {
+        const found = this.usersMap.get(id);
+        return found ? clone(found) : null;
+      },
+      findByEmail: async (email) => {
+        for (const u of this.usersMap.values()) {
+          if (u.email.toLowerCase() === email.toLowerCase()) return clone(u);
+        }
+        return null;
+      },
+      count: async () => this.usersMap.size,
+      createApiKey: async (apiKey) => {
+        const saved = clone(apiKey);
+        this.apiKeysMap.set(saved.id, saved);
+        return clone(saved);
+      },
+      findApiKeyByHash: async (keyHash) => {
+        for (const k of this.apiKeysMap.values()) {
+          if (k.keyHash === keyHash) return clone(k);
+        }
+        return null;
+      },
+      touchApiKey: async (id, usedAt) => {
+        const k = this.apiKeysMap.get(id);
+        if (k) k.lastUsedAt = usedAt;
+      },
+    };
+
+    const idempotency: IIdempotencyRepository = {
+      find: async (key, scope, now) => {
+        const rec = this.idempotencyMap.get(`${scope}:${key}`);
+        if (!rec || rec.expiresAt.getTime() <= now.getTime()) return null;
+        return clone(rec);
+      },
+      save: async (record) => {
+        this.idempotencyMap.set(`${record.scope}:${record.key}`, clone(record));
+      },
+    };
+
+    return {
+      workflows,
+      instances,
+      tokens,
+      steps,
+      userTasks,
+      subscriptions,
+      incidents,
+      jobs,
+      outbox,
+      credentials,
+      users,
+      idempotency,
+    };
+  }
+}
