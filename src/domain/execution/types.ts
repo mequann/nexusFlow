@@ -43,6 +43,25 @@ export interface TaskApprovalVote {
   decidedAt: string;
 }
 
+export type ExternalTaskStatus = 'OPEN' | 'LOCKED' | 'COMPLETED' | 'FAILED';
+
+export interface ExternalTask {
+  id: string;
+  instanceId: string;
+  tokenId: string;
+  nodeId: string;
+  topic: string;
+  workerId: string | null;
+  lockExpiresAt: Date | null;
+  status: ExternalTaskStatus;
+  variables: Record<string, unknown>;
+  resultVariables: Record<string, unknown> | null;
+  retries: number;
+  errorMessage: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
 export interface WorkflowInstance {
   id: string;
   workflowId: string;
@@ -55,6 +74,8 @@ export interface WorkflowInstance {
   triggerPayload: Record<string, unknown>;
   variables: Record<string, unknown>;
   correlationKey: string | null;
+  parentInstanceId: string | null;
+  parentTokenId: string | null;
   startedBy: string | null;
   occVersion: number;
   startedAt: Date;

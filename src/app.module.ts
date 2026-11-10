@@ -8,10 +8,12 @@ import {
   type OnModuleInit,
 } from '@nestjs/common';
 import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
+import { NodeExecutorRegistry } from './application/engine/node-executors.js';
 import { WorkflowEngine } from './application/engine/workflow-engine.js';
 import { AuthService } from './application/services/auth-service.js';
 import { CaseService } from './application/services/case-service.js';
 import { CredentialService } from './application/services/credential-service.js';
+import { ExternalTaskService } from './application/services/external-task-service.js';
 import { IncidentService } from './application/services/incident-service.js';
 import { MessageService } from './application/services/message-service.js';
 import { TaskService } from './application/services/task-service.js';
@@ -38,7 +40,9 @@ import { JobWorker } from './infrastructure/workers/job-worker.js';
 import { SchedulerWorker } from './infrastructure/workers/scheduler-worker.js';
 import { AuthController } from './interfaces/http/controllers/auth.controller.js';
 import { CasesController } from './interfaces/http/controllers/cases.controller.js';
+import { ConnectorsController } from './interfaces/http/controllers/connectors.controller.js';
 import { CredentialsController } from './interfaces/http/controllers/credentials.controller.js';
+import { ExternalTasksController } from './interfaces/http/controllers/external-tasks.controller.js';
 import { HealthController } from './interfaces/http/controllers/health.controller.js';
 import { IncidentsController } from './interfaces/http/controllers/incidents.controller.js';
 import { InstancesController } from './interfaces/http/controllers/instances.controller.js';
@@ -109,6 +113,8 @@ export class NexusFlowModule implements OnModuleInit, OnModuleDestroy {
         InstancesController,
         TasksController,
         CasesController,
+        ConnectorsController,
+        ExternalTasksController,
         IncidentsController,
         MessagesController,
         CredentialsController,
@@ -121,12 +127,14 @@ export class NexusFlowModule implements OnModuleInit, OnModuleDestroy {
         { provide: CREDENTIAL_VAULT, useValue: vault },
         { provide: CIRCUIT_BREAKER, useValue: circuitBreaker },
         uowProvider,
+        NodeExecutorRegistry,
         CredentialService,
         AuthService,
         WorkflowService,
         WorkflowEngine,
         TaskService,
         CaseService,
+        ExternalTaskService,
         IncidentService,
         MessageService,
         JobWorker,
@@ -142,12 +150,14 @@ export class NexusFlowModule implements OnModuleInit, OnModuleDestroy {
         APP_LOGGER,
         APP_METRICS,
         UNIT_OF_WORK,
+        NodeExecutorRegistry,
         CredentialService,
         AuthService,
         WorkflowService,
         WorkflowEngine,
         TaskService,
         CaseService,
+        ExternalTaskService,
         IncidentService,
         MessageService,
         JobWorker,

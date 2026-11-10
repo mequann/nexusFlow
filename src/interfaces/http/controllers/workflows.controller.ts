@@ -55,22 +55,12 @@ const RetryPolicySchema = z.object({
 const NodeSchema = z.object({
   id: z.string().min(1),
   name: z.string().min(1),
-  type: z.enum([
-    'trigger.manual',
-    'trigger.webhook',
-    'trigger.cron',
-    'action.http',
-    'action.transform',
-    'logic.if',
-    'logic.switch',
-    'logic.parallel',
-    'logic.join',
-    'bpmn.user_task',
-    'bpmn.timer',
-    'bpmn.message_catch',
-    'bpmn.decision_table',
-    'bpmn.end',
-  ]),
+  type: z
+    .string()
+    .regex(
+      /^[a-z][a-z0-9_]*(\.[a-z0-9_-]+)+$/,
+      'Node type must be a namespaced connector identifier (e.g. action.http, external.erp_sync)',
+    ),
   stage: z.string().optional(),
   config: z.record(z.unknown()).default({}),
   retryPolicy: RetryPolicySchema.optional(),

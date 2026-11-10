@@ -3,6 +3,7 @@ import type {
   EventSubscription,
   ExecutionJob,
   ExecutionToken,
+  ExternalTask,
   Incident,
   IncidentStatus,
   InstanceStatus,
@@ -69,6 +70,19 @@ export interface IUserTaskRepository {
 export interface ICaseCommentRepository {
   create(comment: CaseComment): Promise<CaseComment>;
   findByInstance(instanceId: string): Promise<CaseComment[]>;
+}
+
+export interface IExternalTaskRepository {
+  create(task: ExternalTask): Promise<ExternalTask>;
+  findById(id: string): Promise<ExternalTask | null>;
+  fetchAndLock(
+    workerId: string,
+    topics: string[],
+    maxTasks: number,
+    lockUntil: Date,
+    now: Date,
+  ): Promise<ExternalTask[]>;
+  update(task: ExternalTask): Promise<ExternalTask>;
 }
 
 export interface ISubscriptionRepository {
@@ -142,6 +156,7 @@ export interface IRepositoryRegistry {
   steps: IStepRepository;
   userTasks: IUserTaskRepository;
   caseComments: ICaseCommentRepository;
+  externalTasks: IExternalTaskRepository;
   subscriptions: ISubscriptionRepository;
   incidents: IIncidentRepository;
   jobs: IJobRepository;

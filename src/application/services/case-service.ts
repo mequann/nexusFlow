@@ -30,7 +30,11 @@ export class CaseService {
       this.uow.repos.caseComments.findByInstance(instanceId),
     ]);
 
-    const stages = workflow?.definition.stages ?? [];
+    const explicitStages = workflow?.definition.stages;
+    const derivedStages = workflow
+      ? [...new Set(workflow.definition.nodes.map((n) => n.stage).filter((s): s is string => Boolean(s)))]
+      : [];
+    const stages = explicitStages && explicitStages.length > 0 ? explicitStages : derivedStages;
     let progressPercent = 0;
     if (instance.status === 'COMPLETED') {
       progressPercent = 100;

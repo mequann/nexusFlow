@@ -20,6 +20,7 @@ import type {
   EventSubscription,
   ExecutionJob,
   ExecutionToken,
+  ExternalTask,
   Incident,
   OutboxEvent,
   StepExecution,
@@ -29,6 +30,7 @@ import type {
 import type {
   ICaseCommentRepository,
   ICredentialRepository,
+  IExternalTaskRepository,
   IIdempotencyRepository,
   IIncidentRepository,
   IInstanceRepository,
@@ -185,6 +187,8 @@ function buildDrizzleRegistry(db: DrizzleDb): IRepositoryRegistry {
           triggerPayload: inst.triggerPayload,
           variables: inst.variables,
           correlationKey: inst.correlationKey,
+          parentInstanceId: inst.parentInstanceId,
+          parentTokenId: inst.parentTokenId,
           startedBy: inst.startedBy,
           occVersion: inst.occVersion,
           startedAt: inst.startedAt,
@@ -467,6 +471,92 @@ function buildDrizzleRegistry(db: DrizzleDb): IRepositoryRegistry {
         .from(schema.caseComments)
         .where(eq(schema.caseComments.instanceId, instanceId))
         .orderBy(asc(schema.caseComments.createdAt));
+    },
+  };
+
+  const externalTasks: IExternalTaskRepository = {
+    create: async (task) => {
+      const [row] = await db
+        .insert(schema.externalTasks)
+        .values({
+          id: task.id,
+          instanceId: task.instanceId,
+          tokenId: task.tokenId,
+          nodeId: task.nodeId,
+          topic: task.topic,
+          workerId: task.workerId,
+          lockExpiresAt: task.lockExpiresAt,
+          status: task.status,
+          variables: task.variables,
+          resultVariables: task.resultVariables,
+          retries: task.retries,
+          errorMessage: task.errorMessage,
+          createdAt: task.createdAt,
+          updatedAt: task.updatedAt,
+        })
+        .returning();
+      return toExternalTaskRecord(row!);
+    },
+    findById: async (id) => {
+      const [row] = await db
+        .select()
+        .from(schema.externalTasks)
+        .where(eq(schema.externalTasks.id, id));
+      return row ? toExternalTaskRecord(row) : null;
+    },
+    fetchAndLock: async (workerId, topics, maxTasks, lockUntil, now) => {
+      if (topics.length === 0) return [];
+      return db.transaction(async (tx) => {
+        const candidates = await tx
+          .select({ id: schema.externalTasks.id })
+          .from(schema.externalTasks)
+          .where(
+            and(
+              inArray(schema.externalTasks.topic, topics),
+              or(
+                eq(schema.externalTasks.status, 'OPEN'),
+                and(
+                  eq(schema.externalTasks.status, 'LOCKED'),
+                  lte(schema.externalTasks.lockExpiresAt, now),
+                ),
+              ),
+            ),
+          )
+          .orderBy(asc(schema.externalTasks.createdAt))
+          .limit(maxTasks)
+          .for('update', { skipLocked: true });
+
+        if (candidates.length === 0) return [];
+        const ids = candidates.map((c) => c.id);
+        const locked = await tx
+          .update(schema.externalTasks)
+          .set({
+            status: 'LOCKED',
+            workerId,
+            lockExpiresAt: lockUntil,
+            updatedAt: now,
+          })
+          .where(inArray(schema.externalTasks.id, ids))
+          .returning();
+        return locked.map(toExternalTaskRecord);
+      });
+    },
+    update: async (task) => {
+      const [updated] = await db
+        .update(schema.externalTasks)
+        .set({
+          workerId: task.workerId,
+          lockExpiresAt: task.lockExpiresAt,
+          status: task.status,
+          resultVariables: task.resultVariables,
+          retries: task.retries,
+          errorMessage: task.errorMessage,
+          updatedAt: new Date(),
+        })
+        .where(eq(schema.externalTasks.id, task.id))
+        .returning();
+      if (!updated) throw new NotFoundError('ExternalTask', task.id);
+      return toExternalTaskRecord(updated);
     },
   };
 
@@ -905,6 +995,7 @@ function buildDrizzleRegistry(db: DrizzleDb): IRepositoryRegistry {
     steps,
     userTasks,
     caseComments,
+    externalTasks,
     subscriptions,
     incidents,
     jobs,
@@ -937,6 +1028,10 @@ function toStepRecord(row: typeof schema.stepExecutions.$inferSelect): StepExecu
 
 function toTaskRecord(row: typeof schema.userTasks.$inferSelect): UserTask {
   return { ...row, status: row.status as UserTask['status'] };
+}
+
+function toExternalTaskRecord(row: typeof schema.externalTasks.$inferSelect): ExternalTask {
+  return { ...row, status: row.status as ExternalTask['status'] };
 }
 
 function toSubscriptionRecord(row: typeof schema.eventSubscriptions.$inferSelect): EventSubscription {

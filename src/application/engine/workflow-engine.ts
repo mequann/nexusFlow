@@ -44,15 +44,16 @@ export interface StartInstanceInput {
   triggerPayload?: Record<string, unknown>;
   initialVariables?: Record<string, unknown>;
   correlationKey?: string | null;
+  parentInstanceId?: string | null;
+  parentTokenId?: string | null;
   startedBy?: string | null;
 }
 
 @Injectable()
 export class WorkflowEngine {
-  private readonly executors = new NodeExecutorRegistry();
-
   constructor(
     @Inject(UNIT_OF_WORK) private readonly uow: IUnitOfWork,
+    @Inject(NodeExecutorRegistry) private readonly executors: NodeExecutorRegistry,
     @Inject(CredentialServiceClass) private readonly credentialService: CredentialService,
     @Inject(CIRCUIT_BREAKER) private readonly circuitBreaker: CircuitBreakerRegistry,
     @Inject(APP_CONFIG) private readonly config: AppConfig,
@@ -100,6 +101,8 @@ export class WorkflowEngine {
       triggerPayload: input.triggerPayload ?? {},
       variables: { ...(input.initialVariables ?? {}) },
       correlationKey: input.correlationKey ?? null,
+      parentInstanceId: input.parentInstanceId ?? null,
+      parentTokenId: input.parentTokenId ?? null,
       startedBy: input.startedBy ?? null,
       occVersion: 1,
       startedAt: now,
@@ -450,6 +453,135 @@ export class WorkflowEngine {
           return;
         }
 
+        if (outcome.kind === 'WAIT_EXTERNAL_TASK') {
+          await repos.steps.update({ ...stepRecord, status: 'WAITING', finishedAt, durationMs });
+          await repos.tokens.update({ ...token, status: 'WAITING' });
+          const extId = crypto.randomUUID();
+          await repos.externalTasks.create({
+            id: extId,
+            instanceId: instance.id,
+            tokenId: token.id,
+            nodeId: node.id,
+            topic: outcome.topic,
+            workerId: null,
+            lockExpiresAt: null,
+            status: 'OPEN',
+            variables: outcome.variables,
+            resultVariables: null,
+            retries: outcome.retries,
+            errorMessage: null,
+            createdAt: finishedAt,
+            updatedAt: finishedAt,
+          });
+          const nextStage = node.stage ?? freshInstance.currentStage;
+          if (freshInstance.status !== 'WAITING' || nextStage !== freshInstance.currentStage) {
+            await repos.instances.updateWithOcc({
+              ...freshInstance,
+              status: 'WAITING',
+              currentStage: nextStage,
+            });
+          }
+          await repos.outbox.append({
+            id: crypto.randomUUID(),
+            aggregateType: 'ExternalTask',
+            aggregateId: extId,
+            eventType: 'EXTERNAL_TASK_CREATED',
+            payload: { externalTaskId: extId, topic: outcome.topic, instanceId: instance.id },
+            status: 'PENDING',
+            attempts: 0,
+            createdAt: finishedAt,
+            publishedAt: null,
+          });
+          await repos.jobs.complete(job.id);
+          this.metrics.recordStepExecution(node.type, 'WAITING', durationMs);
+          return;
+        }
+
+        if (outcome.kind === 'WAIT_SUB_WORKFLOW') {
+          const childWorkflow = outcome.version
+            ? await repos.workflows.findByKeyAndVersion(outcome.workflowKey, outcome.version)
+            : await repos.workflows.findLatestByKey(outcome.workflowKey, 'PUBLISHED');
+          if (!childWorkflow || childWorkflow.status !== 'PUBLISHED') {
+            throw new NotFoundError('PublishedChildWorkflow', outcome.workflowKey);
+          }
+          const childTrigger = childWorkflow.definition.nodes.find(
+            (n) => n.type.startsWith('trigger.') && !n.isCompensationHandler,
+          );
+          if (!childTrigger) {
+            throw new NotFoundError('TriggerNode', childWorkflow.id);
+          }
+
+          await repos.steps.update({ ...stepRecord, status: 'WAITING', finishedAt, durationMs });
+          await repos.tokens.update({ ...token, status: 'WAITING' });
+
+          const childInstanceId = crypto.randomUUID();
+          const childTokenId = crypto.randomUUID();
+          const childPolicy =
+            childTrigger.retryPolicy ?? childWorkflow.definition.defaultRetryPolicy ?? DEFAULT_RETRY_POLICY;
+
+          await repos.instances.create({
+            id: childInstanceId,
+            workflowId: childWorkflow.id,
+            workflowKey: childWorkflow.key,
+            workflowVersion: childWorkflow.version,
+            status: 'RUNNING',
+            currentStage: childTrigger.stage ?? childWorkflow.definition.stages?.[0] ?? null,
+            slaStatus: 'ON_TRACK',
+            triggerType: 'bpmn.call_activity',
+            triggerPayload: outcome.variables,
+            variables: { ...outcome.variables },
+            correlationKey: freshInstance.correlationKey,
+            parentInstanceId: instance.id,
+            parentTokenId: token.id,
+            startedBy: freshInstance.startedBy,
+            occVersion: 1,
+            startedAt: finishedAt,
+            completedAt: null,
+            updatedAt: finishedAt,
+          });
+
+          await repos.tokens.create({
+            id: childTokenId,
+            instanceId: childInstanceId,
+            currentNodeId: childTrigger.id,
+            parentTokenId: null,
+            joinGroupId: null,
+            status: 'ACTIVE',
+            createdAt: finishedAt,
+            updatedAt: finishedAt,
+          });
+
+          await repos.jobs.enqueue({
+            id: crypto.randomUUID(),
+            instanceId: childInstanceId,
+            tokenId: childTokenId,
+            nodeId: childTrigger.id,
+            jobType: 'EXECUTE_NODE',
+            payload: {},
+            status: 'PENDING',
+            attempts: 0,
+            maxAttempts: childPolicy.maxAttempts,
+            availableAt: finishedAt,
+            lockedBy: null,
+            lockedAt: null,
+            lastError: null,
+            createdAt: finishedAt,
+            updatedAt: finishedAt,
+          });
+
+          if (freshInstance.status !== 'WAITING') {
+            await repos.instances.updateWithOcc({
+              ...freshInstance,
+              status: 'WAITING',
+              currentStage: node.stage ?? freshInstance.currentStage,
+            });
+          }
+
+          await repos.jobs.complete(job.id);
+          this.metrics.recordStepExecution(node.type, 'WAITING', durationMs);
+          return;
+        }
+
         // CONTINUE or END
         const nextVariables = { ...freshInstance.variables };
         if (outcome.variablesPatch) {
@@ -751,6 +883,112 @@ export class WorkflowEngine {
       'COMPLETED',
       now.getTime() - instance.startedAt.getTime(),
     );
+
+    // If this was a child sub-workflow spawned by bpmn.call_activity, resume the parent token!
+    if (instance.parentInstanceId && instance.parentTokenId) {
+      const parentToken = await repos.tokens.findById(instance.parentTokenId);
+      if (parentToken && parentToken.status === 'WAITING') {
+        await repos.jobs.enqueue({
+          id: crypto.randomUUID(),
+          instanceId: instance.parentInstanceId,
+          tokenId: parentToken.id,
+          nodeId: parentToken.currentNodeId,
+          jobType: 'RESUME_TOKEN',
+          payload: {
+            [`sub_${instance.workflowKey}`]: instance.variables,
+            ...instance.variables,
+          },
+          status: 'PENDING',
+          attempts: 0,
+          maxAttempts: 3,
+          availableAt: now,
+          lockedBy: null,
+          lockedAt: null,
+          lastError: null,
+          createdAt: now,
+          updatedAt: now,
+        });
+      }
+    }
+  }
+
+  /**
+   * Runtime variable patching for dynamic instance adjustments without redeployment.
+   */
+  async patchVariables(
+    instanceId: string,
+    patch: Record<string, unknown>,
+  ): Promise<WorkflowInstance> {
+    return this.uow.runInTransaction(async (repos) => {
+      const instance = await repos.instances.findById(instanceId);
+      if (!instance) throw new NotFoundError('WorkflowInstance', instanceId);
+      if (isTerminalInstanceStatus(instance.status)) {
+        throw new ConflictError(`Cannot modify terminal instance '${instanceId}'`);
+      }
+      return repos.instances.updateWithOcc({
+        ...instance,
+        variables: { ...instance.variables, ...patch },
+      });
+    });
+  }
+
+  /**
+   * Camunda-style dynamic process instance modification: moves/jumps a token to any node in the graph.
+   */
+  async moveTokenToNode(
+    instanceId: string,
+    tokenId: string,
+    targetNodeId: string,
+    reason = 'Dynamic operator token modification',
+  ): Promise<ExecutionToken> {
+    return this.uow.runInTransaction(async (repos) => {
+      const instance = await repos.instances.findById(instanceId);
+      if (!instance) throw new NotFoundError('WorkflowInstance', instanceId);
+      if (isTerminalInstanceStatus(instance.status)) {
+        throw new ConflictError(`Cannot modify terminal instance '${instanceId}'`);
+      }
+
+      const workflow = await repos.workflows.findById(instance.workflowId);
+      if (!workflow) throw new NotFoundError('Workflow', instance.workflowId);
+      const targetNode = workflow.definition.nodes.find((n) => n.id === targetNodeId);
+      if (!targetNode) throw new NotFoundError('TargetNode', targetNodeId);
+
+      const token = await repos.tokens.findById(tokenId);
+      if (!token || token.instanceId !== instanceId) {
+        throw new NotFoundError('ExecutionToken', tokenId);
+      }
+
+      const now = new Date();
+      const updatedToken = await repos.tokens.update({
+        ...token,
+        currentNodeId: targetNode.id,
+        status: 'ACTIVE',
+      });
+
+      if (instance.status !== 'RUNNING') {
+        await repos.instances.updateWithOcc({
+          ...instance,
+          status: 'RUNNING',
+          currentStage: targetNode.stage ?? instance.currentStage,
+        });
+      }
+
+      await this.enqueueNodeJob(repos, instanceId, updatedToken.id, targetNode, workflow);
+
+      await repos.outbox.append({
+        id: crypto.randomUUID(),
+        aggregateType: 'WorkflowInstance',
+        aggregateId: instanceId,
+        eventType: 'TOKEN_MOVED_DYNAMICALLY',
+        payload: { instanceId, tokenId, targetNodeId, reason },
+        status: 'PENDING',
+        attempts: 0,
+        createdAt: now,
+        publishedAt: null,
+      });
+
+      return updatedToken;
+    });
   }
 
   private async handleNodeFailure(

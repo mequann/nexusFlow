@@ -199,6 +199,25 @@ describe('NestJS HTTP API (E2E Integration)', () => {
       .expect(200);
     expect(caseSummary.body.instance.id).toBe(instanceId);
     expect(caseSummary.body.comments).toHaveLength(1);
+
+    // 5. Dynamic Connector Registry API
+    const connectors = await request(server)
+      .get('/api/v1/connectors')
+      .set('authorization', `Bearer ${viewerToken}`)
+      .expect(200);
+    expect(connectors.body.items.length).toBeGreaterThanOrEqual(15);
+
+    const registered = await request(server)
+      .post('/api/v1/connectors/register')
+      .set('authorization', `Bearer ${adminToken}`)
+      .send({
+        type: 'connector.erp_webhook',
+        title: 'Dynamic ERP Webhook',
+        description: 'Custom runtime connector',
+        endpointUrl: 'https://erp.example.com/api/orders',
+      })
+      .expect(201);
+    expect(registered.body.type).toBe('connector.erp_webhook');
   });
 });
 

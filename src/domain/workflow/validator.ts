@@ -7,6 +7,7 @@ export interface ValidationIssue {
 }
 
 const TRIGGER_TYPES = new Set(['trigger.manual', 'trigger.webhook', 'trigger.cron']);
+const NAMESPACED_TYPE_REGEX = /^[a-z][a-z0-9_]*(\.[a-z0-9_-]+)+$/;
 
 /**
  * Validates structural, topological, and semantic invariants of a hybrid
@@ -25,6 +26,12 @@ export function validateWorkflowGraph(graph: WorkflowGraphDefinition): void {
       issues.push({
         path: `nodes[${idx}].id`,
         message: 'Node id must be non-empty alphanumeric/underscore/hyphen',
+      });
+    }
+    if (!node.type || !NAMESPACED_TYPE_REGEX.test(node.type)) {
+      issues.push({
+        path: `nodes[${idx}].type`,
+        message: `Node type '${node.type}' must be a namespaced identifier (e.g. 'action.http', 'connector.sap')`,
       });
     }
     if (nodeMap.has(node.id)) {

@@ -1,18 +1,29 @@
-export type NodeType =
+export type BuiltinNodeType =
   | 'trigger.manual'
   | 'trigger.webhook'
   | 'trigger.cron'
   | 'action.http'
   | 'action.transform'
+  | 'action.script'
   | 'logic.if'
   | 'logic.switch'
   | 'logic.parallel'
   | 'logic.join'
+  | 'logic.for_each'
   | 'bpmn.user_task'
   | 'bpmn.timer'
   | 'bpmn.message_catch'
   | 'bpmn.decision_table'
-  | 'bpmn.end';
+  | 'bpmn.external_task'
+  | 'bpmn.call_activity'
+  | 'bpmn.end'
+  | 'kissflow.approval_matrix';
+
+/**
+ * Extensible node type supporting built-in Camunda/n8n/Kissflow nodes
+ * as well as dynamically registered enterprise connectors (e.g. `connector.sap_erp`, `external.ml_score`).
+ */
+export type NodeType = BuiltinNodeType | (string & {});
 
 export interface RetryPolicy {
   maxAttempts: number;
@@ -52,7 +63,7 @@ export interface WorkflowGraphDefinition {
   edges: EdgeDefinition[];
   defaultRetryPolicy?: RetryPolicy;
   sagaEnabled?: boolean;
-  /** Kissflow ordered business case stages for progress tracking */
+  /** Kissflow ordered business case stages (auto-derived from node.stage if omitted) */
   stages?: string[];
   /** Kissflow intake form schema validated when starting an instance */
   intakeFormSchema?: Record<string, unknown>;

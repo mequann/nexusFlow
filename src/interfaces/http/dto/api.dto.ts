@@ -710,3 +710,156 @@ export class WebhookAcceptedResponseDto {
   @ApiProperty({ type: Number, example: 1 })
   workflowVersion!: number;
 }
+
+export class ConnectorDescriptorDto {
+  @ApiProperty({ type: String, example: 'kissflow.approval_matrix' })
+  type!: string;
+
+  @ApiProperty({
+    type: String,
+    enum: ['trigger', 'action', 'logic', 'bpmn', 'kissflow', 'custom'],
+    example: 'kissflow',
+  })
+  category!: string;
+
+  @ApiProperty({ type: String, example: 'Dynamic Kissflow Approval Matrix' })
+  title!: string;
+
+  @ApiProperty({
+    type: String,
+    example: 'Dynamically resolves approver, candidateGroup, quorum, and SLA from runtime rules',
+  })
+  description!: string;
+
+  @ApiProperty({ type: Boolean, example: true })
+  builtin!: boolean;
+
+  @ApiProperty({ type: Object, example: { rules: 'Array', defaultRule: 'object' } })
+  configSchema!: Record<string, unknown>;
+}
+
+export class ConnectorListResponseDto {
+  @ApiProperty({ type: () => [ConnectorDescriptorDto] })
+  items!: ConnectorDescriptorDto[];
+}
+
+export class RegisterHttpConnectorDto {
+  @ApiProperty({ type: String, example: 'connector.slack_webhook' })
+  type!: string;
+
+  @ApiProperty({ type: String, example: 'Slack Channel Notifier' })
+  title!: string;
+
+  @ApiProperty({ type: String, example: 'Posts workflow alerts to a configured Slack webhook' })
+  description!: string;
+
+  @ApiProperty({ type: String, example: 'https://hooks.slack.com/services/T000/B000/XXXX' })
+  endpointUrl!: string;
+
+  @ApiPropertyOptional({ type: String, enum: ['POST', 'PUT', 'PATCH'], example: 'POST' })
+  method?: string;
+
+  @ApiPropertyOptional({ type: String, example: 'slack_bot_token' })
+  credentialName?: string;
+
+  @ApiPropertyOptional({ type: Object, example: { 'x-source': 'nexusflow' } })
+  defaultHeaders?: Record<string, string>;
+}
+
+export class FetchAndLockExternalTasksDto {
+  @ApiProperty({ type: String, example: 'sap-erp-worker-01' })
+  workerId!: string;
+
+  @ApiProperty({ type: [String], example: ['erp.create_invoice', 'external.ai_score'] })
+  topics!: string[];
+
+  @ApiPropertyOptional({ type: Number, example: 10 })
+  maxTasks?: number;
+
+  @ApiPropertyOptional({ type: Number, example: 30000 })
+  lockDurationMs?: number;
+}
+
+export class ExternalTaskResponseDto {
+  @ApiProperty({ type: String, example: 'e4d3c2b1-1234-4abc-9def-0123456789ab' })
+  id!: string;
+
+  @ApiProperty({ type: String, example: 'b64d7c30-2d2a-4f7c-9c30-cf2310fb5a5f' })
+  instanceId!: string;
+
+  @ApiProperty({ type: String, example: 'erp_invoice_step' })
+  nodeId!: string;
+
+  @ApiProperty({ type: String, example: 'erp.create_invoice' })
+  topic!: string;
+
+  @ApiPropertyOptional({ type: String, example: 'sap-erp-worker-01', nullable: true })
+  workerId!: string | null;
+
+  @ApiProperty({ type: String, enum: ['OPEN', 'LOCKED', 'COMPLETED', 'FAILED'], example: 'LOCKED' })
+  status!: string;
+
+  @ApiProperty({ type: Object, example: { poNumber: 'PO-2026-088', amount: 40000 } })
+  variables!: Record<string, unknown>;
+
+  @ApiProperty({ type: Number, example: 3 })
+  retries!: number;
+}
+
+export class ExternalTaskListResponseDto {
+  @ApiProperty({ type: () => [ExternalTaskResponseDto] })
+  items!: ExternalTaskResponseDto[];
+}
+
+export class CompleteExternalTaskDto {
+  @ApiProperty({ type: String, example: 'sap-erp-worker-01' })
+  workerId!: string;
+
+  @ApiProperty({ type: Object, example: { erpInvoiceId: 'INV-9001', posted: true } })
+  variables!: Record<string, unknown>;
+}
+
+export class FailExternalTaskDto {
+  @ApiProperty({ type: String, example: 'sap-erp-worker-01' })
+  workerId!: string;
+
+  @ApiProperty({ type: String, example: 'SAP BAPI timeout' })
+  errorMessage!: string;
+
+  @ApiPropertyOptional({ type: Number, example: 2 })
+  retriesRemaining?: number;
+}
+
+export class PatchInstanceVariablesDto {
+  @ApiProperty({ type: Object, example: { priority: 'CRITICAL', overrideLimit: true } })
+  variables!: Record<string, unknown>;
+}
+
+export class MoveTokenDto {
+  @ApiProperty({ type: String, example: 'tok-123' })
+  tokenId!: string;
+
+  @ApiProperty({ type: String, example: 'erp_fulfillment' })
+  targetNodeId!: string;
+
+  @ApiPropertyOptional({ type: String, example: 'Skip manual review per VP override' })
+  reason?: string;
+}
+
+export class ExecutionTokenResponseDto {
+  @ApiProperty({ type: String, example: 'tok-123' })
+  id!: string;
+
+  @ApiProperty({ type: String, example: 'b64d7c30-2d2a-4f7c-9c30-cf2310fb5a5f' })
+  instanceId!: string;
+
+  @ApiProperty({ type: String, example: 'erp_fulfillment' })
+  currentNodeId!: string;
+
+  @ApiProperty({
+    type: String,
+    enum: ['ACTIVE', 'WAITING', 'COMPLETED', 'FAILED', 'CANCELLED'],
+    example: 'ACTIVE',
+  })
+  status!: string;
+}

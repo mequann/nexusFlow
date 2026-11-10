@@ -88,6 +88,8 @@ export const workflowInstances = pgTable(
     triggerPayload: jsonb('trigger_payload').$type<Record<string, unknown>>().notNull().default({}),
     variables: jsonb('variables').$type<Record<string, unknown>>().notNull().default({}),
     correlationKey: text('correlation_key'),
+    parentInstanceId: uuid('parent_instance_id'),
+    parentTokenId: uuid('parent_token_id'),
     startedBy: text('started_by'),
     occVersion: integer('occ_version').notNull().default(1),
     startedAt: timestamp('started_at', { withTimezone: true }).notNull().defaultNow(),
@@ -194,6 +196,31 @@ export const caseComments = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [index('idx_case_comments_instance').on(table.instanceId, table.createdAt)],
+);
+
+export const externalTasks = pgTable(
+  'external_tasks',
+  {
+    id: uuid('id').primaryKey(),
+    instanceId: uuid('instance_id')
+      .notNull()
+      .references(() => workflowInstances.id, { onDelete: 'cascade' }),
+    tokenId: uuid('token_id')
+      .notNull()
+      .references(() => executionTokens.id, { onDelete: 'cascade' }),
+    nodeId: text('node_id').notNull(),
+    topic: text('topic').notNull(),
+    workerId: text('worker_id'),
+    lockExpiresAt: timestamp('lock_expires_at', { withTimezone: true }),
+    status: text('status').notNull(),
+    variables: jsonb('variables').$type<Record<string, unknown>>().notNull().default({}),
+    resultVariables: jsonb('result_variables').$type<Record<string, unknown> | null>(),
+    retries: integer('retries').notNull().default(3),
+    errorMessage: text('error_message'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [index('idx_external_tasks_topic_poll').on(table.topic, table.createdAt)],
 );
 
 export const eventSubscriptions = pgTable('event_subscriptions', {

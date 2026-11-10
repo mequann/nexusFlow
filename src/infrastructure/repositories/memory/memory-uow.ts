@@ -4,6 +4,7 @@ import type {
   EventSubscription,
   ExecutionJob,
   ExecutionToken,
+  ExternalTask,
   Incident,
   OutboxEvent,
   StepExecution,
@@ -13,6 +14,7 @@ import type {
 import type {
   ICaseCommentRepository,
   ICredentialRepository,
+  IExternalTaskRepository,
   IIdempotencyRepository,
   IIncidentRepository,
   IInstanceRepository,
@@ -42,6 +44,7 @@ export class MemoryUnitOfWork implements IUnitOfWork {
   private readonly stepsMap = new Map<string, StepExecution>();
   private readonly userTasksMap = new Map<string, UserTask>();
   private readonly commentsMap = new Map<string, CaseComment>();
+  private readonly externalTasksMap = new Map<string, ExternalTask>();
   private readonly subscriptionsMap = new Map<string, EventSubscription>();
   private readonly incidentsMap = new Map<string, Incident>();
   private readonly jobsMap = new Map<string, ExecutionJob>();
@@ -299,6 +302,49 @@ export class MemoryUnitOfWork implements IUnitOfWork {
       },
     };
 
+    const externalTasks: IExternalTaskRepository = {
+      create: async (task) => {
+        const saved = clone(task);
+        this.externalTasksMap.set(saved.id, saved);
+        return clone(saved);
+      },
+      findById: async (id) => {
+        const found = this.externalTasksMap.get(id);
+        return found ? clone(found) : null;
+      },
+      fetchAndLock: async (workerId, topics, maxTasks, lockUntil, now) => {
+        const topicSet = new Set(topics);
+        const candidates = [...this.externalTasksMap.values()]
+          .filter(
+            (t) =>
+              topicSet.has(t.topic) &&
+              (t.status === 'OPEN' ||
+                (t.status === 'LOCKED' &&
+                  t.lockExpiresAt !== null &&
+                  t.lockExpiresAt.getTime() <= now.getTime())),
+          )
+          .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())
+          .slice(0, maxTasks);
+
+        for (const t of candidates) {
+          t.status = 'LOCKED';
+          t.workerId = workerId;
+          t.lockExpiresAt = lockUntil;
+          t.updatedAt = now;
+        }
+        return candidates.map(clone);
+      },
+      update: async (task) => {
+        if (!this.externalTasksMap.has(task.id)) {
+          throw new NotFoundError('ExternalTask', task.id);
+        }
+        const saved = clone(task);
+        saved.updatedAt = new Date();
+        this.externalTasksMap.set(saved.id, saved);
+        return clone(saved);
+      },
+    };
+
     const subscriptions: ISubscriptionRepository = {
       create: async (sub) => {
         const saved = clone(sub);
@@ -542,6 +588,7 @@ export class MemoryUnitOfWork implements IUnitOfWork {
       steps,
       userTasks,
       caseComments,
+      externalTasks,
       subscriptions,
       incidents,
       jobs,

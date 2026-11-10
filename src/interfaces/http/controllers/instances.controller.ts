@@ -1,6 +1,8 @@
-import { Controller, Get, HttpCode, HttpStatus, Inject, Param, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, HttpStatus, Inject, Param, Patch, Post, Query } from '@nestjs/common';
 import {
+  ApiBadRequestResponse,
   ApiBearerAuth,
+  ApiBody,
   ApiConflictResponse,
   ApiNotFoundResponse,
   ApiOkResponse,
@@ -10,6 +12,7 @@ import {
   ApiTags,
   ApiUnauthorizedResponse,
 } from '@nestjs/swagger';
+import { z } from 'zod';
 import { WorkflowEngine } from '../../../application/engine/workflow-engine.js';
 import { UNIT_OF_WORK } from '../../../application/tokens.js';
 import { NotFoundError } from '../../../domain/errors.js';
@@ -18,10 +21,24 @@ import type { IUnitOfWork } from '../../../domain/ports/repositories.js';
 import { RequirePermission } from '../decorators/auth.decorator.js';
 import {
   ErrorResponseDto,
+  ExecutionTokenResponseDto,
   InstanceListResponseDto,
   InstanceResponseDto,
   InstanceTraceResponseDto,
+  MoveTokenDto,
+  PatchInstanceVariablesDto,
 } from '../dto/api.dto.js';
+import { ZodValidationPipe } from '../pipes/zod-validation.pipe.js';
+
+const PatchVariablesSchema = z.object({
+  variables: z.record(z.unknown()),
+});
+
+const MoveTokenSchema = z.object({
+  tokenId: z.string().min(1),
+  targetNodeId: z.string().min(1),
+  reason: z.string().max(500).optional(),
+});
 
 @ApiTags('Instances')
 @ApiBearerAuth()
@@ -112,5 +129,39 @@ export class InstancesController {
   @ApiConflictResponse({ description: 'Instance is already in a terminal state', type: ErrorResponseDto })
   async cancel(@Param('id') id: string) {
     return this.engine.cancelInstance(id);
+  }
+
+  @Patch(':id/variables')
+  @RequirePermission('instance:cancel')
+  @ApiOperation({ summary: 'Dynamically patch variables on an active workflow instance' })
+  @ApiParam({ name: 'id', example: 'b64d7c30-2d2a-4f7c-9c30-cf2310fb5a5f' })
+  @ApiBody({ type: PatchInstanceVariablesDto })
+  @ApiOkResponse({ description: 'Variables updated', type: InstanceResponseDto })
+  @ApiBadRequestResponse({ description: 'Validation error', type: ErrorResponseDto })
+  @ApiNotFoundResponse({ description: 'Instance not found', type: ErrorResponseDto })
+  @ApiConflictResponse({ description: 'Terminal instance cannot be modified', type: ErrorResponseDto })
+  async patchVariables(
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(PatchVariablesSchema)) body: PatchInstanceVariablesDto,
+  ) {
+    return this.engine.patchVariables(id, body.variables);
+  }
+
+  @Post(':id/tokens/move')
+  @HttpCode(HttpStatus.OK)
+  @RequirePermission('instance:cancel')
+  @ApiOperation({
+    summary: 'Camunda-style dynamic process modification: move/jump a token to any node in the workflow',
+  })
+  @ApiParam({ name: 'id', example: 'b64d7c30-2d2a-4f7c-9c30-cf2310fb5a5f' })
+  @ApiBody({ type: MoveTokenDto })
+  @ApiOkResponse({ description: 'Token moved and scheduled', type: ExecutionTokenResponseDto })
+  @ApiNotFoundResponse({ description: 'Instance, token, or target node not found', type: ErrorResponseDto })
+  @ApiConflictResponse({ description: 'Terminal instance cannot be modified', type: ErrorResponseDto })
+  async moveToken(
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(MoveTokenSchema)) body: MoveTokenDto,
+  ) {
+    return this.engine.moveTokenToNode(id, body.tokenId, body.targetNodeId, body.reason);
   }
 }

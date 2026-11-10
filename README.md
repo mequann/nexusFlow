@@ -103,6 +103,12 @@ npm run build       # Emit dist/
 | `POST /api/v1/messages/correlate` | `message:correlate` | Correlate business message to waiting token |
 | `POST /api/v1/incidents/:id/resolve` | `incident:resolve` | Resolve incident (`RETRY`, `COMPENSATE`, `FAIL`) |
 | `POST /api/v1/credentials` | `credential:write` | Encrypt & store third-party secret in vault |
+| `GET /api/v1/connectors` | `workflow:read` | List built-in & custom connector schemas |
+| `POST /api/v1/connectors/register` | `workflow:write` | Register custom HTTP connector step at runtime |
+| `POST /api/v1/external-tasks/fetch-and-lock` | `task:act` | Polyglot worker lock for `external.*` topics |
+| `POST /api/v1/external-tasks/:id/complete` | `task:act` | Complete external task & resume workflow |
+| `PATCH /api/v1/instances/:id/variables` | `instance:cancel` | Dynamically patch active instance variables |
+| `POST /api/v1/instances/:id/tokens/move` | `instance:cancel` | Dynamically move/jump token to any node |
 | `GET /healthz`, `/readyz`, `/metrics` | Public | Liveness, readiness, and Prometheus telemetry |
 
 ---
