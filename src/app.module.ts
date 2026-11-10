@@ -10,6 +10,7 @@ import {
 import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { WorkflowEngine } from './application/engine/workflow-engine.js';
 import { AuthService } from './application/services/auth-service.js';
+import { CaseService } from './application/services/case-service.js';
 import { CredentialService } from './application/services/credential-service.js';
 import { IncidentService } from './application/services/incident-service.js';
 import { MessageService } from './application/services/message-service.js';
@@ -36,6 +37,7 @@ import { AesGcmCredentialVault } from './infrastructure/security/crypto-vault.js
 import { JobWorker } from './infrastructure/workers/job-worker.js';
 import { SchedulerWorker } from './infrastructure/workers/scheduler-worker.js';
 import { AuthController } from './interfaces/http/controllers/auth.controller.js';
+import { CasesController } from './interfaces/http/controllers/cases.controller.js';
 import { CredentialsController } from './interfaces/http/controllers/credentials.controller.js';
 import { HealthController } from './interfaces/http/controllers/health.controller.js';
 import { IncidentsController } from './interfaces/http/controllers/incidents.controller.js';
@@ -86,10 +88,7 @@ export class NexusFlowModule implements OnModuleInit, OnModuleDestroy {
       provide: UNIT_OF_WORK,
       useFactory: async (): Promise<IUnitOfWork> => {
         if (config.STORAGE_DRIVER === 'postgres') {
-          if (!config.DATABASE_URL) {
-            throw new Error('DATABASE_URL is required when STORAGE_DRIVER=postgres');
-          }
-          const pool = createPgPool(config.DATABASE_URL);
+          const pool = createPgPool(config);
           await runMigrations(pool);
           const pgUow = new PostgresUnitOfWork(pool);
           NexusFlowModule.uowRef = pgUow;
@@ -109,6 +108,7 @@ export class NexusFlowModule implements OnModuleInit, OnModuleDestroy {
         WorkflowsController,
         InstancesController,
         TasksController,
+        CasesController,
         IncidentsController,
         MessagesController,
         CredentialsController,
@@ -126,6 +126,7 @@ export class NexusFlowModule implements OnModuleInit, OnModuleDestroy {
         WorkflowService,
         WorkflowEngine,
         TaskService,
+        CaseService,
         IncidentService,
         MessageService,
         JobWorker,
@@ -146,6 +147,7 @@ export class NexusFlowModule implements OnModuleInit, OnModuleDestroy {
         WorkflowService,
         WorkflowEngine,
         TaskService,
+        CaseService,
         IncidentService,
         MessageService,
         JobWorker,

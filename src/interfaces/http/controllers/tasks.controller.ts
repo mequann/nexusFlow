@@ -11,6 +11,11 @@ const CompleteTaskSchema = z.object({
   resolution: z.record(z.unknown()).default({}),
 });
 
+const DelegateTaskSchema = z.object({
+  toAssignee: z.string().min(1),
+  reason: z.string().max(500).optional(),
+});
+
 @ApiTags('Human User Tasks (Camunda)')
 @ApiBearerAuth()
 @Controller('api/v1/tasks')
@@ -41,6 +46,18 @@ export class TasksController {
   @ApiOperation({ summary: 'Claim a human user task for the current operator' })
   async claim(@Param('id') id: string, @CurrentPrincipal() principal: AuthPrincipal) {
     return this.taskService.claimTask(id, principal.userId);
+  }
+
+  @Post(':id/delegate')
+  @HttpCode(HttpStatus.OK)
+  @RequirePermission('task:act')
+  @ApiOperation({ summary: 'Delegate / reassign a human task to another user (Kissflow OOO handoff)' })
+  async delegate(
+    @Param('id') id: string,
+    @CurrentPrincipal() principal: AuthPrincipal,
+    @Body(new ZodValidationPipe(DelegateTaskSchema)) body: z.infer<typeof DelegateTaskSchema>,
+  ) {
+    return this.taskService.delegateTask(id, principal.userId, body.toAssignee, body.reason);
   }
 
   @Post(':id/complete')

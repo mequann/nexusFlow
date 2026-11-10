@@ -1,5 +1,6 @@
 import { ConflictError, NotFoundError } from '../../../domain/errors.js';
 import type {
+  CaseComment,
   EventSubscription,
   ExecutionJob,
   ExecutionToken,
@@ -10,6 +11,7 @@ import type {
   WorkflowInstance,
 } from '../../../domain/execution/types.js';
 import type {
+  ICaseCommentRepository,
   ICredentialRepository,
   IIdempotencyRepository,
   IIncidentRepository,
@@ -39,6 +41,7 @@ export class MemoryUnitOfWork implements IUnitOfWork {
   private readonly tokensMap = new Map<string, ExecutionToken>();
   private readonly stepsMap = new Map<string, StepExecution>();
   private readonly userTasksMap = new Map<string, UserTask>();
+  private readonly commentsMap = new Map<string, CaseComment>();
   private readonly subscriptionsMap = new Map<string, EventSubscription>();
   private readonly incidentsMap = new Map<string, Incident>();
   private readonly jobsMap = new Map<string, ExecutionJob>();
@@ -260,12 +263,39 @@ export class MemoryUnitOfWork implements IUnitOfWork {
           .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
           .map(clone);
       },
+      findOverdueTasks: async (now, limit = 50) => {
+        return [...this.userTasksMap.values()]
+          .filter(
+            (t) =>
+              (t.status === 'OPEN' || t.status === 'CLAIMED') &&
+              !t.slaBreached &&
+              t.dueAt !== null &&
+              t.dueAt.getTime() <= now.getTime(),
+          )
+          .sort((a, b) => (a.dueAt?.getTime() ?? 0) - (b.dueAt?.getTime() ?? 0))
+          .slice(0, limit)
+          .map(clone);
+      },
       update: async (task) => {
         if (!this.userTasksMap.has(task.id)) throw new NotFoundError('UserTask', task.id);
         const saved = clone(task);
         saved.updatedAt = new Date();
         this.userTasksMap.set(saved.id, saved);
         return clone(saved);
+      },
+    };
+
+    const caseComments: ICaseCommentRepository = {
+      create: async (comment) => {
+        const saved = clone(comment);
+        this.commentsMap.set(saved.id, saved);
+        return clone(saved);
+      },
+      findByInstance: async (instanceId) => {
+        return [...this.commentsMap.values()]
+          .filter((c) => c.instanceId === instanceId)
+          .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())
+          .map(clone);
       },
     };
 
@@ -511,6 +541,7 @@ export class MemoryUnitOfWork implements IUnitOfWork {
       tokens,
       steps,
       userTasks,
+      caseComments,
       subscriptions,
       incidents,
       jobs,

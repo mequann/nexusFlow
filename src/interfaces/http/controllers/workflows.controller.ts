@@ -47,6 +47,7 @@ const NodeSchema = z.object({
     'bpmn.decision_table',
     'bpmn.end',
   ]),
+  stage: z.string().optional(),
   config: z.record(z.unknown()).default({}),
   retryPolicy: RetryPolicySchema.optional(),
   compensateNodeId: z.string().optional(),
@@ -67,6 +68,8 @@ const GraphSchema = z.object({
   edges: z.array(EdgeSchema),
   defaultRetryPolicy: RetryPolicySchema.optional(),
   sagaEnabled: z.boolean().optional(),
+  stages: z.array(z.string()).optional(),
+  intakeFormSchema: z.record(z.unknown()).optional(),
 });
 
 const CreateWorkflowSchema = z.object({

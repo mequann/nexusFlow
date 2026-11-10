@@ -11,6 +11,17 @@ const EnvSchema = z.object({
 
   STORAGE_DRIVER: z.enum(['memory', 'postgres']).default('memory'),
   DATABASE_URL: z.string().optional(),
+  DB_HOST: z.string().default('localhost'),
+  DB_PORT: z.coerce.number().int().min(1).max(65535).default(5432),
+  DB_USER: z.string().default('nexusflow'),
+  DB_PASSWORD: z.string().default('nexusflow'),
+  DB_NAME: z.string().default('nexusflow'),
+  DB_SSL: z
+    .string()
+    .transform((v) => v === 'true')
+    .default('false'),
+  DB_POOL_MAX: z.coerce.number().int().min(1).max(100).default(20),
+
   REDIS_URL: z.string().optional(),
 
   JWT_SECRET: z.string().min(16).default('dev-jwt-secret-change-me-in-production-32chars'),
@@ -49,4 +60,14 @@ export type AppConfig = z.infer<typeof EnvSchema>;
 
 export function loadConfig(overrides: Record<string, string | undefined> = {}): AppConfig {
   return EnvSchema.parse({ ...process.env, ...overrides });
+}
+
+export function resolvePostgresConnectionString(config: AppConfig): string {
+  if (config.DATABASE_URL && config.DATABASE_URL.trim().length > 0) {
+    return config.DATABASE_URL.trim();
+  }
+  const user = encodeURIComponent(config.DB_USER);
+  const password = encodeURIComponent(config.DB_PASSWORD);
+  const dbName = encodeURIComponent(config.DB_NAME);
+  return `postgres://${user}:${password}@${config.DB_HOST}:${config.DB_PORT}/${dbName}`;
 }

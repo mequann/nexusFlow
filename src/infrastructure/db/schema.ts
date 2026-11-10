@@ -1,0 +1,291 @@
+import {
+  boolean,
+  index,
+  integer,
+  jsonb,
+  pgTable,
+  primaryKey,
+  text,
+  timestamp,
+  uniqueIndex,
+  uuid,
+} from 'drizzle-orm/pg-core';
+import type { TaskApprovalVote } from '../../domain/execution/types.js';
+import type { WorkflowGraphDefinition } from '../../domain/workflow/types.js';
+
+export const users = pgTable('users', {
+  id: uuid('id').primaryKey(),
+  email: text('email').notNull().unique(),
+  name: text('name').notNull(),
+  passwordHash: text('password_hash').notNull(),
+  role: text('role').notNull(),
+  isActive: boolean('is_active').notNull().default(true),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const apiKeys = pgTable('api_keys', {
+  id: uuid('id').primaryKey(),
+  userId: uuid('user_id')
+    .notNull()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  name: text('name').notNull(),
+  keyPrefix: text('key_prefix').notNull(),
+  keyHash: text('key_hash').notNull().unique(),
+  role: text('role').notNull(),
+  expiresAt: timestamp('expires_at', { withTimezone: true }),
+  lastUsedAt: timestamp('last_used_at', { withTimezone: true }),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const credentials = pgTable('credentials', {
+  id: uuid('id').primaryKey(),
+  name: text('name').notNull().unique(),
+  type: text('type').notNull(),
+  keyId: text('key_id').notNull(),
+  iv: text('iv').notNull(),
+  authTag: text('auth_tag').notNull(),
+  ciphertext: text('ciphertext').notNull(),
+  createdBy: uuid('created_by').references(() => users.id, { onDelete: 'set null' }),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const workflows = pgTable(
+  'workflows',
+  {
+    id: uuid('id').primaryKey(),
+    key: text('key').notNull(),
+    name: text('name').notNull(),
+    description: text('description').notNull().default(''),
+    version: integer('version').notNull(),
+    status: text('status').notNull(),
+    definition: jsonb('definition').$type<WorkflowGraphDefinition>().notNull(),
+    webhookPath: text('webhook_path'),
+    webhookSecretHash: text('webhook_secret_hash'),
+    cronExpression: text('cron_expression'),
+    cronNextRunAt: timestamp('cron_next_run_at', { withTimezone: true }),
+    createdBy: uuid('created_by').references(() => users.id, { onDelete: 'set null' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [uniqueIndex('workflows_key_version_uidx').on(table.key, table.version)],
+);
+
+export const workflowInstances = pgTable(
+  'workflow_instances',
+  {
+    id: uuid('id').primaryKey(),
+    workflowId: uuid('workflow_id')
+      .notNull()
+      .references(() => workflows.id),
+    workflowKey: text('workflow_key').notNull(),
+    workflowVersion: integer('workflow_version').notNull(),
+    status: text('status').notNull(),
+    currentStage: text('current_stage'),
+    slaStatus: text('sla_status').notNull().default('ON_TRACK'),
+    triggerType: text('trigger_type').notNull(),
+    triggerPayload: jsonb('trigger_payload').$type<Record<string, unknown>>().notNull().default({}),
+    variables: jsonb('variables').$type<Record<string, unknown>>().notNull().default({}),
+    correlationKey: text('correlation_key'),
+    startedBy: text('started_by'),
+    occVersion: integer('occ_version').notNull().default(1),
+    startedAt: timestamp('started_at', { withTimezone: true }).notNull().defaultNow(),
+    completedAt: timestamp('completed_at', { withTimezone: true }),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index('idx_instances_status').on(table.status, table.updatedAt),
+    index('idx_instances_workflow').on(table.workflowId, table.startedAt),
+  ],
+);
+
+export const executionTokens = pgTable(
+  'execution_tokens',
+  {
+    id: uuid('id').primaryKey(),
+    instanceId: uuid('instance_id')
+      .notNull()
+      .references(() => workflowInstances.id, { onDelete: 'cascade' }),
+    currentNodeId: text('current_node_id').notNull(),
+    parentTokenId: uuid('parent_token_id'),
+    joinGroupId: text('join_group_id'),
+    status: text('status').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [index('idx_tokens_instance').on(table.instanceId, table.status)],
+);
+
+export const stepExecutions = pgTable(
+  'step_executions',
+  {
+    id: uuid('id').primaryKey(),
+    instanceId: uuid('instance_id')
+      .notNull()
+      .references(() => workflowInstances.id, { onDelete: 'cascade' }),
+    tokenId: uuid('token_id')
+      .notNull()
+      .references(() => executionTokens.id, { onDelete: 'cascade' }),
+    nodeId: text('node_id').notNull(),
+    nodeType: text('node_type').notNull(),
+    nodeName: text('node_name').notNull(),
+    status: text('status').notNull(),
+    attempt: integer('attempt').notNull().default(1),
+    input: jsonb('input').$type<Record<string, unknown>>().notNull().default({}),
+    output: jsonb('output').$type<Record<string, unknown> | null>(),
+    errorMessage: text('error_message'),
+    compensateNodeId: text('compensate_node_id'),
+    startedAt: timestamp('started_at', { withTimezone: true }).notNull().defaultNow(),
+    finishedAt: timestamp('finished_at', { withTimezone: true }),
+    durationMs: integer('duration_ms'),
+  },
+  (table) => [index('idx_steps_instance').on(table.instanceId, table.startedAt)],
+);
+
+export const userTasks = pgTable(
+  'user_tasks',
+  {
+    id: uuid('id').primaryKey(),
+    instanceId: uuid('instance_id')
+      .notNull()
+      .references(() => workflowInstances.id, { onDelete: 'cascade' }),
+    tokenId: uuid('token_id')
+      .notNull()
+      .references(() => executionTokens.id, { onDelete: 'cascade' }),
+    nodeId: text('node_id').notNull(),
+    title: text('title').notNull(),
+    description: text('description').notNull().default(''),
+    stage: text('stage'),
+    candidateGroup: text('candidate_group'),
+    assignee: text('assignee'),
+    delegatedFrom: text('delegated_from'),
+    status: text('status').notNull(),
+    formSchema: jsonb('form_schema').$type<Record<string, unknown>>().notNull().default({}),
+    payload: jsonb('payload').$type<Record<string, unknown>>().notNull().default({}),
+    resolution: jsonb('resolution').$type<Record<string, unknown> | null>(),
+    requiredApprovals: integer('required_approvals').notNull().default(1),
+    approvalsReceived: jsonb('approvals_received').$type<TaskApprovalVote[]>().notNull().default([]),
+    dueAt: timestamp('due_at', { withTimezone: true }),
+    slaBreached: boolean('sla_breached').notNull().default(false),
+    escalateTo: text('escalate_to'),
+    escalationLevel: integer('escalation_level').notNull().default(0),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+    completedAt: timestamp('completed_at', { withTimezone: true }),
+  },
+  (table) => [
+    index('idx_user_tasks_status').on(table.status, table.createdAt),
+    index('idx_user_tasks_instance').on(table.instanceId),
+    index('idx_user_tasks_sla').on(table.dueAt),
+  ],
+);
+
+export const caseComments = pgTable(
+  'case_comments',
+  {
+    id: uuid('id').primaryKey(),
+    instanceId: uuid('instance_id')
+      .notNull()
+      .references(() => workflowInstances.id, { onDelete: 'cascade' }),
+    authorId: text('author_id').notNull(),
+    authorEmail: text('author_email').notNull(),
+    body: text('body').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [index('idx_case_comments_instance').on(table.instanceId, table.createdAt)],
+);
+
+export const eventSubscriptions = pgTable('event_subscriptions', {
+  id: uuid('id').primaryKey(),
+  instanceId: uuid('instance_id')
+    .notNull()
+    .references(() => workflowInstances.id, { onDelete: 'cascade' }),
+  tokenId: uuid('token_id')
+    .notNull()
+    .references(() => executionTokens.id, { onDelete: 'cascade' }),
+  nodeId: text('node_id').notNull(),
+  type: text('type').notNull(),
+  messageName: text('message_name'),
+  correlationKey: text('correlation_key'),
+  triggerAt: timestamp('trigger_at', { withTimezone: true }),
+  status: text('status').notNull(),
+  payload: jsonb('payload').$type<Record<string, unknown> | null>(),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  triggeredAt: timestamp('triggered_at', { withTimezone: true }),
+});
+
+export const incidents = pgTable(
+  'incidents',
+  {
+    id: uuid('id').primaryKey(),
+    instanceId: uuid('instance_id')
+      .notNull()
+      .references(() => workflowInstances.id, { onDelete: 'cascade' }),
+    tokenId: uuid('token_id')
+      .notNull()
+      .references(() => executionTokens.id, { onDelete: 'cascade' }),
+    stepExecutionId: uuid('step_execution_id').references(() => stepExecutions.id, {
+      onDelete: 'set null',
+    }),
+    nodeId: text('node_id').notNull(),
+    incidentType: text('incident_type').notNull(),
+    message: text('message').notNull(),
+    stackTrace: text('stack_trace'),
+    payloadSnapshot: jsonb('payload_snapshot').$type<Record<string, unknown>>().notNull().default({}),
+    status: text('status').notNull(),
+    resolvedBy: text('resolved_by'),
+    resolutionNote: text('resolution_note'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    resolvedAt: timestamp('resolved_at', { withTimezone: true }),
+  },
+  (table) => [index('idx_incidents_status').on(table.status, table.createdAt)],
+);
+
+export const executionJobs = pgTable('execution_jobs', {
+  id: uuid('id').primaryKey(),
+  instanceId: uuid('instance_id')
+    .notNull()
+    .references(() => workflowInstances.id, { onDelete: 'cascade' }),
+  tokenId: uuid('token_id')
+    .notNull()
+    .references(() => executionTokens.id, { onDelete: 'cascade' }),
+  nodeId: text('node_id').notNull(),
+  jobType: text('job_type').notNull(),
+  payload: jsonb('payload').$type<Record<string, unknown>>().notNull().default({}),
+  status: text('status').notNull(),
+  attempts: integer('attempts').notNull().default(0),
+  maxAttempts: integer('max_attempts').notNull().default(3),
+  availableAt: timestamp('available_at', { withTimezone: true }).notNull().defaultNow(),
+  lockedBy: text('locked_by'),
+  lockedAt: timestamp('locked_at', { withTimezone: true }),
+  lastError: text('last_error'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const outboxEvents = pgTable('outbox_events', {
+  id: uuid('id').primaryKey(),
+  aggregateType: text('aggregate_type').notNull(),
+  aggregateId: text('aggregate_id').notNull(),
+  eventType: text('event_type').notNull(),
+  payload: jsonb('payload').$type<Record<string, unknown>>().notNull(),
+  status: text('status').notNull(),
+  attempts: integer('attempts').notNull().default(0),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  publishedAt: timestamp('published_at', { withTimezone: true }),
+});
+
+export const idempotencyKeys = pgTable(
+  'idempotency_keys',
+  {
+    key: text('key').notNull(),
+    scope: text('scope').notNull(),
+    requestHash: text('request_hash').notNull(),
+    statusCode: integer('status_code').notNull(),
+    responseBody: jsonb('response_body').$type<unknown>().notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+  },
+  (table) => [primaryKey({ columns: [table.key, table.scope] })],
+);

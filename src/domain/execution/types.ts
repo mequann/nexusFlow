@@ -36,12 +36,21 @@ export type IncidentStatus = 'OPEN' | 'RESOLVED' | 'DISMISSED';
 export type JobType = 'EXECUTE_NODE' | 'RESUME_TOKEN' | 'COMPENSATE';
 export type JobStatus = 'PENDING' | 'PROCESSING' | 'COMPLETED' | 'DEAD';
 
+export interface TaskApprovalVote {
+  userId: string;
+  decision: 'APPROVED' | 'REJECTED';
+  note?: string;
+  decidedAt: string;
+}
+
 export interface WorkflowInstance {
   id: string;
   workflowId: string;
   workflowKey: string;
   workflowVersion: number;
   status: InstanceStatus;
+  currentStage: string | null;
+  slaStatus: 'ON_TRACK' | 'BREACHED';
   triggerType: string;
   triggerPayload: Record<string, unknown>;
   variables: Record<string, unknown>;
@@ -89,16 +98,32 @@ export interface UserTask {
   nodeId: string;
   title: string;
   description: string;
+  stage: string | null;
   candidateGroup: string | null;
   assignee: string | null;
+  delegatedFrom: string | null;
   status: UserTaskStatus;
   formSchema: Record<string, unknown>;
   payload: Record<string, unknown>;
   resolution: Record<string, unknown> | null;
+  requiredApprovals: number;
+  approvalsReceived: TaskApprovalVote[];
   dueAt: Date | null;
+  slaBreached: boolean;
+  escalateTo: string | null;
+  escalationLevel: number;
   createdAt: Date;
   updatedAt: Date;
   completedAt: Date | null;
+}
+
+export interface CaseComment {
+  id: string;
+  instanceId: string;
+  authorId: string;
+  authorEmail: string;
+  body: string;
+  createdAt: Date;
 }
 
 export interface EventSubscription {

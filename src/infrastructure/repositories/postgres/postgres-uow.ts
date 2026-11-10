@@ -1,6 +1,22 @@
-import type { Pool, PoolClient, QueryResultRow } from 'pg';
+import {
+  and,
+  asc,
+  count as drizzleCount,
+  desc,
+  eq,
+  gt,
+  inArray,
+  isNotNull,
+  isNull,
+  lte,
+  or,
+  sql,
+} from 'drizzle-orm';
+import { type NodePgDatabase, drizzle } from 'drizzle-orm/node-postgres';
+import type { Pool } from 'pg';
 import { ConflictError, NotFoundError } from '../../../domain/errors.js';
 import type {
+  CaseComment,
   EventSubscription,
   ExecutionJob,
   ExecutionToken,
@@ -11,6 +27,7 @@ import type {
   WorkflowInstance,
 } from '../../../domain/execution/types.js';
 import type {
+  ICaseCommentRepository,
   ICredentialRepository,
   IIdempotencyRepository,
   IIncidentRepository,
@@ -26,245 +43,36 @@ import type {
   IUserTaskRepository,
   IWorkflowRepository,
 } from '../../../domain/ports/repositories.js';
-import type { ApiKeyRecord, CredentialRecord, Role, UserRecord } from '../../../domain/security/types.js';
-import type { WorkflowDefinitionRecord, WorkflowGraphDefinition, WorkflowStatus } from '../../../domain/workflow/types.js';
+import type { CredentialRecord, Role } from '../../../domain/security/types.js';
+import type { WorkflowDefinitionRecord, WorkflowStatus } from '../../../domain/workflow/types.js';
+import * as schema from '../../db/schema.js';
 
-interface Queryable {
-  query<R extends QueryResultRow = QueryResultRow>(
-    text: string,
-    values?: unknown[],
-  ): Promise<{ rows: R[]; rowCount: number | null }>;
-}
+type DrizzleDb = NodePgDatabase<typeof schema>;
 
-function mapWorkflow(row: Record<string, unknown>): WorkflowDefinitionRecord {
-  return {
-    id: String(row.id),
-    key: String(row.key),
-    name: String(row.name),
-    description: String(row.description ?? ''),
-    version: Number(row.version),
-    status: row.status as WorkflowStatus,
-    definition: row.definition as WorkflowGraphDefinition,
-    webhookPath: (row.webhook_path as string | null) ?? null,
-    webhookSecretHash: (row.webhook_secret_hash as string | null) ?? null,
-    cronExpression: (row.cron_expression as string | null) ?? null,
-    cronNextRunAt: row.cron_next_run_at ? new Date(String(row.cron_next_run_at)) : null,
-    createdBy: (row.created_by as string | null) ?? null,
-    createdAt: new Date(String(row.created_at)),
-    updatedAt: new Date(String(row.updated_at)),
-  };
-}
-
-function mapInstance(row: Record<string, unknown>): WorkflowInstance {
-  return {
-    id: String(row.id),
-    workflowId: String(row.workflow_id),
-    workflowKey: String(row.workflow_key),
-    workflowVersion: Number(row.workflow_version),
-    status: row.status as WorkflowInstance['status'],
-    triggerType: String(row.trigger_type),
-    triggerPayload: (row.trigger_payload as Record<string, unknown>) ?? {},
-    variables: (row.variables as Record<string, unknown>) ?? {},
-    correlationKey: (row.correlation_key as string | null) ?? null,
-    startedBy: (row.started_by as string | null) ?? null,
-    occVersion: Number(row.occ_version),
-    startedAt: new Date(String(row.started_at)),
-    completedAt: row.completed_at ? new Date(String(row.completed_at)) : null,
-    updatedAt: new Date(String(row.updated_at)),
-  };
-}
-
-function mapToken(row: Record<string, unknown>): ExecutionToken {
-  return {
-    id: String(row.id),
-    instanceId: String(row.instance_id),
-    currentNodeId: String(row.current_node_id),
-    parentTokenId: (row.parent_token_id as string | null) ?? null,
-    joinGroupId: (row.join_group_id as string | null) ?? null,
-    status: row.status as ExecutionToken['status'],
-    createdAt: new Date(String(row.created_at)),
-    updatedAt: new Date(String(row.updated_at)),
-  };
-}
-
-function mapStep(row: Record<string, unknown>): StepExecution {
-  return {
-    id: String(row.id),
-    instanceId: String(row.instance_id),
-    tokenId: String(row.token_id),
-    nodeId: String(row.node_id),
-    nodeType: String(row.node_type),
-    nodeName: String(row.node_name),
-    status: row.status as StepExecution['status'],
-    attempt: Number(row.attempt),
-    input: (row.input as Record<string, unknown>) ?? {},
-    output: (row.output as Record<string, unknown> | null) ?? null,
-    errorMessage: (row.error_message as string | null) ?? null,
-    compensateNodeId: (row.compensate_node_id as string | null) ?? null,
-    startedAt: new Date(String(row.started_at)),
-    finishedAt: row.finished_at ? new Date(String(row.finished_at)) : null,
-    durationMs: row.duration_ms !== null && row.duration_ms !== undefined ? Number(row.duration_ms) : null,
-  };
-}
-
-function mapTask(row: Record<string, unknown>): UserTask {
-  return {
-    id: String(row.id),
-    instanceId: String(row.instance_id),
-    tokenId: String(row.token_id),
-    nodeId: String(row.node_id),
-    title: String(row.title),
-    description: String(row.description ?? ''),
-    candidateGroup: (row.candidate_group as string | null) ?? null,
-    assignee: (row.assignee as string | null) ?? null,
-    status: row.status as UserTask['status'],
-    formSchema: (row.form_schema as Record<string, unknown>) ?? {},
-    payload: (row.payload as Record<string, unknown>) ?? {},
-    resolution: (row.resolution as Record<string, unknown> | null) ?? null,
-    dueAt: row.due_at ? new Date(String(row.due_at)) : null,
-    createdAt: new Date(String(row.created_at)),
-    updatedAt: new Date(String(row.updated_at)),
-    completedAt: row.completed_at ? new Date(String(row.completed_at)) : null,
-  };
-}
-
-function mapSubscription(row: Record<string, unknown>): EventSubscription {
-  return {
-    id: String(row.id),
-    instanceId: String(row.instance_id),
-    tokenId: String(row.token_id),
-    nodeId: String(row.node_id),
-    type: row.type as EventSubscription['type'],
-    messageName: (row.message_name as string | null) ?? null,
-    correlationKey: (row.correlation_key as string | null) ?? null,
-    triggerAt: row.trigger_at ? new Date(String(row.trigger_at)) : null,
-    status: row.status as EventSubscription['status'],
-    payload: (row.payload as Record<string, unknown> | null) ?? null,
-    createdAt: new Date(String(row.created_at)),
-    triggeredAt: row.triggered_at ? new Date(String(row.triggered_at)) : null,
-  };
-}
-
-function mapIncident(row: Record<string, unknown>): Incident {
-  return {
-    id: String(row.id),
-    instanceId: String(row.instance_id),
-    tokenId: String(row.token_id),
-    stepExecutionId: (row.step_execution_id as string | null) ?? null,
-    nodeId: String(row.node_id),
-    incidentType: String(row.incident_type),
-    message: String(row.message),
-    stackTrace: (row.stack_trace as string | null) ?? null,
-    payloadSnapshot: (row.payload_snapshot as Record<string, unknown>) ?? {},
-    status: row.status as Incident['status'],
-    resolvedBy: (row.resolved_by as string | null) ?? null,
-    resolutionNote: (row.resolution_note as string | null) ?? null,
-    createdAt: new Date(String(row.created_at)),
-    resolvedAt: row.resolved_at ? new Date(String(row.resolved_at)) : null,
-  };
-}
-
-function mapJob(row: Record<string, unknown>): ExecutionJob {
-  return {
-    id: String(row.id),
-    instanceId: String(row.instance_id),
-    tokenId: String(row.token_id),
-    nodeId: String(row.node_id),
-    jobType: row.job_type as ExecutionJob['jobType'],
-    payload: (row.payload as Record<string, unknown>) ?? {},
-    status: row.status as ExecutionJob['status'],
-    attempts: Number(row.attempts),
-    maxAttempts: Number(row.max_attempts),
-    availableAt: new Date(String(row.available_at)),
-    lockedBy: (row.locked_by as string | null) ?? null,
-    lockedAt: row.locked_at ? new Date(String(row.locked_at)) : null,
-    lastError: (row.last_error as string | null) ?? null,
-    createdAt: new Date(String(row.created_at)),
-    updatedAt: new Date(String(row.updated_at)),
-  };
-}
-
-function mapOutbox(row: Record<string, unknown>): OutboxEvent {
-  return {
-    id: String(row.id),
-    aggregateType: String(row.aggregate_type),
-    aggregateId: String(row.aggregate_id),
-    eventType: String(row.event_type),
-    payload: (row.payload as Record<string, unknown>) ?? {},
-    status: row.status as OutboxEvent['status'],
-    attempts: Number(row.attempts),
-    createdAt: new Date(String(row.created_at)),
-    publishedAt: row.published_at ? new Date(String(row.published_at)) : null,
-  };
-}
-
-function mapCredential(row: Record<string, unknown>): CredentialRecord {
-  return {
-    id: String(row.id),
-    name: String(row.name),
-    type: row.type as CredentialRecord['type'],
-    keyId: String(row.key_id),
-    iv: String(row.iv),
-    authTag: String(row.auth_tag),
-    ciphertext: String(row.ciphertext),
-    createdBy: (row.created_by as string | null) ?? null,
-    createdAt: new Date(String(row.created_at)),
-    updatedAt: new Date(String(row.updated_at)),
-  };
-}
-
-function mapUser(row: Record<string, unknown>): UserRecord {
-  return {
-    id: String(row.id),
-    email: String(row.email),
-    name: String(row.name),
-    passwordHash: String(row.password_hash),
-    role: row.role as Role,
-    isActive: Boolean(row.is_active),
-    createdAt: new Date(String(row.created_at)),
-    updatedAt: new Date(String(row.updated_at)),
-  };
-}
-
-function mapApiKey(row: Record<string, unknown>): ApiKeyRecord {
-  return {
-    id: String(row.id),
-    userId: String(row.user_id),
-    name: String(row.name),
-    keyPrefix: String(row.key_prefix),
-    keyHash: String(row.key_hash),
-    role: row.role as Role,
-    expiresAt: row.expires_at ? new Date(String(row.expires_at)) : null,
-    lastUsedAt: row.last_used_at ? new Date(String(row.last_used_at)) : null,
-    createdAt: new Date(String(row.created_at)),
-  };
-}
-
-function buildRegistry(db: Queryable): IRepositoryRegistry {
+function buildDrizzleRegistry(db: DrizzleDb): IRepositoryRegistry {
   const workflows: IWorkflowRepository = {
     create: async (record) => {
       try {
-        const res = await db.query(
-          `INSERT INTO workflows (id, key, name, description, version, status, definition, webhook_path, webhook_secret_hash, cron_expression, cron_next_run_at, created_by, created_at, updated_at)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING *`,
-          [
-            record.id,
-            record.key,
-            record.name,
-            record.description,
-            record.version,
-            record.status,
-            JSON.stringify(record.definition),
-            record.webhookPath,
-            record.webhookSecretHash,
-            record.cronExpression,
-            record.cronNextRunAt,
-            record.createdBy,
-            record.createdAt,
-            record.updatedAt,
-          ],
-        );
-        return mapWorkflow(res.rows[0]!);
+        const [inserted] = await db
+          .insert(schema.workflows)
+          .values({
+            id: record.id,
+            key: record.key,
+            name: record.name,
+            description: record.description,
+            version: record.version,
+            status: record.status,
+            definition: record.definition,
+            webhookPath: record.webhookPath,
+            webhookSecretHash: record.webhookSecretHash,
+            cronExpression: record.cronExpression,
+            cronNextRunAt: record.cronNextRunAt,
+            createdBy: record.createdBy,
+            createdAt: record.createdAt,
+            updatedAt: record.updatedAt,
+          })
+          .returning();
+        return toWorkflowRecord(inserted!);
       } catch (err: unknown) {
         if ((err as { code?: string }).code === '23505') {
           throw new ConflictError(`Workflow '${record.key}' v${record.version} already exists`);
@@ -273,548 +81,676 @@ function buildRegistry(db: Queryable): IRepositoryRegistry {
       }
     },
     findById: async (id) => {
-      const res = await db.query('SELECT * FROM workflows WHERE id = $1', [id]);
-      return res.rows[0] ? mapWorkflow(res.rows[0]) : null;
+      const [row] = await db.select().from(schema.workflows).where(eq(schema.workflows.id, id));
+      return row ? toWorkflowRecord(row) : null;
     },
     findLatestByKey: async (key, status) => {
-      const res = status
-        ? await db.query(
-            'SELECT * FROM workflows WHERE key = $1 AND status = $2 ORDER BY version DESC LIMIT 1',
-            [key, status],
-          )
-        : await db.query(
-            'SELECT * FROM workflows WHERE key = $1 ORDER BY version DESC LIMIT 1',
-            [key],
-          );
-      return res.rows[0] ? mapWorkflow(res.rows[0]) : null;
+      const cond = status
+        ? and(eq(schema.workflows.key, key), eq(schema.workflows.status, status))
+        : eq(schema.workflows.key, key);
+      const [row] = await db
+        .select()
+        .from(schema.workflows)
+        .where(cond)
+        .orderBy(desc(schema.workflows.version))
+        .limit(1);
+      return row ? toWorkflowRecord(row) : null;
     },
     findByKeyAndVersion: async (key, version) => {
-      const res = await db.query('SELECT * FROM workflows WHERE key = $1 AND version = $2', [
-        key,
-        version,
-      ]);
-      return res.rows[0] ? mapWorkflow(res.rows[0]) : null;
+      const [row] = await db
+        .select()
+        .from(schema.workflows)
+        .where(and(eq(schema.workflows.key, key), eq(schema.workflows.version, version)));
+      return row ? toWorkflowRecord(row) : null;
     },
     findByWebhookPath: async (webhookPath) => {
-      const res = await db.query(
-        `SELECT * FROM workflows WHERE status = 'PUBLISHED' AND webhook_path = $1 ORDER BY version DESC LIMIT 1`,
-        [webhookPath],
-      );
-      return res.rows[0] ? mapWorkflow(res.rows[0]) : null;
+      const [row] = await db
+        .select()
+        .from(schema.workflows)
+        .where(
+          and(
+            eq(schema.workflows.status, 'PUBLISHED'),
+            eq(schema.workflows.webhookPath, webhookPath),
+          ),
+        )
+        .orderBy(desc(schema.workflows.version))
+        .limit(1);
+      return row ? toWorkflowRecord(row) : null;
     },
     findDueCronWorkflows: async (now) => {
-      const res = await db.query(
-        `SELECT * FROM workflows WHERE status = 'PUBLISHED' AND cron_expression IS NOT NULL AND cron_next_run_at <= $1`,
-        [now],
-      );
-      return res.rows.map(mapWorkflow);
+      const rows = await db
+        .select()
+        .from(schema.workflows)
+        .where(
+          and(
+            eq(schema.workflows.status, 'PUBLISHED'),
+            isNotNull(schema.workflows.cronExpression),
+            lte(schema.workflows.cronNextRunAt, now),
+          ),
+        );
+      return rows.map(toWorkflowRecord);
     },
     list: async (filters) => {
-      const clauses: string[] = [];
-      const params: unknown[] = [];
-      if (filters?.status) {
-        params.push(filters.status);
-        clauses.push(`status = $${params.length}`);
-      }
-      if (filters?.key) {
-        params.push(filters.key);
-        clauses.push(`key = $${params.length}`);
-      }
-      const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
-      const res = await db.query(
-        `SELECT * FROM workflows ${where} ORDER BY updated_at DESC`,
-        params,
-      );
-      return res.rows.map(mapWorkflow);
+      const conditions = [];
+      if (filters?.status) conditions.push(eq(schema.workflows.status, filters.status));
+      if (filters?.key) conditions.push(eq(schema.workflows.key, filters.key));
+      const rows = await db
+        .select()
+        .from(schema.workflows)
+        .where(conditions.length > 0 ? and(...conditions) : undefined)
+        .orderBy(desc(schema.workflows.updatedAt));
+      return rows.map(toWorkflowRecord);
     },
     update: async (record) => {
-      const res = await db.query(
-        `UPDATE workflows SET name=$2, description=$3, status=$4, definition=$5, webhook_path=$6, webhook_secret_hash=$7, cron_expression=$8, cron_next_run_at=$9, updated_at=$10
-         WHERE id = $1 RETURNING *`,
-        [
-          record.id,
-          record.name,
-          record.description,
-          record.status,
-          JSON.stringify(record.definition),
-          record.webhookPath,
-          record.webhookSecretHash,
-          record.cronExpression,
-          record.cronNextRunAt,
-          record.updatedAt,
-        ],
-      );
-      if (!res.rows[0]) throw new NotFoundError('Workflow', record.id);
-      return mapWorkflow(res.rows[0]);
+      const [updated] = await db
+        .update(schema.workflows)
+        .set({
+          name: record.name,
+          description: record.description,
+          status: record.status,
+          definition: record.definition,
+          webhookPath: record.webhookPath,
+          webhookSecretHash: record.webhookSecretHash,
+          cronExpression: record.cronExpression,
+          cronNextRunAt: record.cronNextRunAt,
+          updatedAt: record.updatedAt,
+        })
+        .where(eq(schema.workflows.id, record.id))
+        .returning();
+      if (!updated) throw new NotFoundError('Workflow', record.id);
+      return toWorkflowRecord(updated);
     },
     getNextVersion: async (key) => {
-      const res = await db.query<{ max_ver: number | null }>(
-        'SELECT MAX(version) AS max_ver FROM workflows WHERE key = $1',
-        [key],
-      );
-      return Number(res.rows[0]?.max_ver ?? 0) + 1;
+      const [row] = await db
+        .select({ maxVer: sql<number | null>`MAX(${schema.workflows.version})` })
+        .from(schema.workflows)
+        .where(eq(schema.workflows.key, key));
+      return Number(row?.maxVer ?? 0) + 1;
     },
   };
 
   const instances: IInstanceRepository = {
     create: async (inst) => {
-      const res = await db.query(
-        `INSERT INTO workflow_instances (id, workflow_id, workflow_key, workflow_version, status, trigger_type, trigger_payload, variables, correlation_key, started_by, occ_version, started_at, completed_at, updated_at)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING *`,
-        [
-          inst.id,
-          inst.workflowId,
-          inst.workflowKey,
-          inst.workflowVersion,
-          inst.status,
-          inst.triggerType,
-          JSON.stringify(inst.triggerPayload),
-          JSON.stringify(inst.variables),
-          inst.correlationKey,
-          inst.startedBy,
-          inst.occVersion,
-          inst.startedAt,
-          inst.completedAt,
-          inst.updatedAt,
-        ],
-      );
-      return mapInstance(res.rows[0]!);
+      const [row] = await db
+        .insert(schema.workflowInstances)
+        .values({
+          id: inst.id,
+          workflowId: inst.workflowId,
+          workflowKey: inst.workflowKey,
+          workflowVersion: inst.workflowVersion,
+          status: inst.status,
+          currentStage: inst.currentStage,
+          slaStatus: inst.slaStatus,
+          triggerType: inst.triggerType,
+          triggerPayload: inst.triggerPayload,
+          variables: inst.variables,
+          correlationKey: inst.correlationKey,
+          startedBy: inst.startedBy,
+          occVersion: inst.occVersion,
+          startedAt: inst.startedAt,
+          completedAt: inst.completedAt,
+          updatedAt: inst.updatedAt,
+        })
+        .returning();
+      return toInstanceRecord(row!);
     },
     findById: async (id) => {
-      const res = await db.query('SELECT * FROM workflow_instances WHERE id = $1', [id]);
-      return res.rows[0] ? mapInstance(res.rows[0]) : null;
+      const [row] = await db
+        .select()
+        .from(schema.workflowInstances)
+        .where(eq(schema.workflowInstances.id, id));
+      return row ? toInstanceRecord(row) : null;
     },
     list: async (filters) => {
-      const clauses: string[] = [];
-      const params: unknown[] = [];
-      if (filters?.status) {
-        params.push(filters.status);
-        clauses.push(`status = $${params.length}`);
-      }
+      const conditions = [];
+      if (filters?.status) conditions.push(eq(schema.workflowInstances.status, filters.status));
       if (filters?.workflowKey) {
-        params.push(filters.workflowKey);
-        clauses.push(`workflow_key = $${params.length}`);
+        conditions.push(eq(schema.workflowInstances.workflowKey, filters.workflowKey));
       }
-      params.push(filters?.limit ?? 100);
-      const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
-      const res = await db.query(
-        `SELECT * FROM workflow_instances ${where} ORDER BY started_at DESC LIMIT $${params.length}`,
-        params,
-      );
-      return res.rows.map(mapInstance);
+      const rows = await db
+        .select()
+        .from(schema.workflowInstances)
+        .where(conditions.length > 0 ? and(...conditions) : undefined)
+        .orderBy(desc(schema.workflowInstances.startedAt))
+        .limit(filters?.limit ?? 100);
+      return rows.map(toInstanceRecord);
     },
     updateWithOcc: async (inst) => {
-      const res = await db.query(
-        `UPDATE workflow_instances
-         SET status=$3, variables=$4, completed_at=$5, occ_version = occ_version + 1, updated_at = NOW()
-         WHERE id = $1 AND occ_version = $2 RETURNING *`,
-        [inst.id, inst.occVersion, inst.status, JSON.stringify(inst.variables), inst.completedAt],
-      );
-      if (!res.rows[0]) {
+      const [updated] = await db
+        .update(schema.workflowInstances)
+        .set({
+          status: inst.status,
+          currentStage: inst.currentStage,
+          slaStatus: inst.slaStatus,
+          variables: inst.variables,
+          completedAt: inst.completedAt,
+          occVersion: sql`${schema.workflowInstances.occVersion} + 1`,
+          updatedAt: new Date(),
+        })
+        .where(
+          and(
+            eq(schema.workflowInstances.id, inst.id),
+            eq(schema.workflowInstances.occVersion, inst.occVersion),
+          ),
+        )
+        .returning();
+      if (!updated) {
         throw new ConflictError(`Optimistic concurrency conflict or missing instance '${inst.id}'`);
       }
-      return mapInstance(res.rows[0]);
+      return toInstanceRecord(updated);
     },
   };
 
   const tokens: ITokenRepository = {
     create: async (token) => {
-      const res = await db.query(
-        `INSERT INTO execution_tokens (id, instance_id, current_node_id, parent_token_id, join_group_id, status, created_at, updated_at)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
-        [
-          token.id,
-          token.instanceId,
-          token.currentNodeId,
-          token.parentTokenId,
-          token.joinGroupId,
-          token.status,
-          token.createdAt,
-          token.updatedAt,
-        ],
-      );
-      return mapToken(res.rows[0]!);
+      const [row] = await db
+        .insert(schema.executionTokens)
+        .values({
+          id: token.id,
+          instanceId: token.instanceId,
+          currentNodeId: token.currentNodeId,
+          parentTokenId: token.parentTokenId,
+          joinGroupId: token.joinGroupId,
+          status: token.status,
+          createdAt: token.createdAt,
+          updatedAt: token.updatedAt,
+        })
+        .returning();
+      return toTokenRecord(row!);
     },
     findById: async (id) => {
-      const res = await db.query('SELECT * FROM execution_tokens WHERE id = $1', [id]);
-      return res.rows[0] ? mapToken(res.rows[0]) : null;
+      const [row] = await db
+        .select()
+        .from(schema.executionTokens)
+        .where(eq(schema.executionTokens.id, id));
+      return row ? toTokenRecord(row) : null;
     },
     findByInstance: async (instanceId) => {
-      const res = await db.query(
-        'SELECT * FROM execution_tokens WHERE instance_id = $1 ORDER BY created_at ASC',
-        [instanceId],
-      );
-      return res.rows.map(mapToken);
+      const rows = await db
+        .select()
+        .from(schema.executionTokens)
+        .where(eq(schema.executionTokens.instanceId, instanceId))
+        .orderBy(asc(schema.executionTokens.createdAt));
+      return rows.map(toTokenRecord);
     },
     findWaitingAtNode: async (instanceId, nodeId) => {
-      const res = await db.query(
-        `SELECT * FROM execution_tokens WHERE instance_id = $1 AND current_node_id = $2 AND status = 'WAITING'`,
-        [instanceId, nodeId],
-      );
-      return res.rows.map(mapToken);
+      const rows = await db
+        .select()
+        .from(schema.executionTokens)
+        .where(
+          and(
+            eq(schema.executionTokens.instanceId, instanceId),
+            eq(schema.executionTokens.currentNodeId, nodeId),
+            eq(schema.executionTokens.status, 'WAITING'),
+          ),
+        );
+      return rows.map(toTokenRecord);
     },
     update: async (token) => {
-      const res = await db.query(
-        `UPDATE execution_tokens SET current_node_id=$2, status=$3, updated_at=NOW() WHERE id=$1 RETURNING *`,
-        [token.id, token.currentNodeId, token.status],
-      );
-      if (!res.rows[0]) throw new NotFoundError('ExecutionToken', token.id);
-      return mapToken(res.rows[0]);
+      const [updated] = await db
+        .update(schema.executionTokens)
+        .set({
+          currentNodeId: token.currentNodeId,
+          status: token.status,
+          updatedAt: new Date(),
+        })
+        .where(eq(schema.executionTokens.id, token.id))
+        .returning();
+      if (!updated) throw new NotFoundError('ExecutionToken', token.id);
+      return toTokenRecord(updated);
     },
   };
 
   const steps: IStepRepository = {
     create: async (step) => {
-      const res = await db.query(
-        `INSERT INTO step_executions (id, instance_id, token_id, node_id, node_type, node_name, status, attempt, input, output, error_message, compensate_node_id, started_at, finished_at, duration_ms)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) RETURNING *`,
-        [
-          step.id,
-          step.instanceId,
-          step.tokenId,
-          step.nodeId,
-          step.nodeType,
-          step.nodeName,
-          step.status,
-          step.attempt,
-          JSON.stringify(step.input),
-          step.output ? JSON.stringify(step.output) : null,
-          step.errorMessage,
-          step.compensateNodeId,
-          step.startedAt,
-          step.finishedAt,
-          step.durationMs,
-        ],
-      );
-      return mapStep(res.rows[0]!);
+      const [row] = await db
+        .insert(schema.stepExecutions)
+        .values({
+          id: step.id,
+          instanceId: step.instanceId,
+          tokenId: step.tokenId,
+          nodeId: step.nodeId,
+          nodeType: step.nodeType,
+          nodeName: step.nodeName,
+          status: step.status,
+          attempt: step.attempt,
+          input: step.input,
+          output: step.output,
+          errorMessage: step.errorMessage,
+          compensateNodeId: step.compensateNodeId,
+          startedAt: step.startedAt,
+          finishedAt: step.finishedAt,
+          durationMs: step.durationMs,
+        })
+        .returning();
+      return toStepRecord(row!);
     },
     findById: async (id) => {
-      const res = await db.query('SELECT * FROM step_executions WHERE id = $1', [id]);
-      return res.rows[0] ? mapStep(res.rows[0]) : null;
+      const [row] = await db
+        .select()
+        .from(schema.stepExecutions)
+        .where(eq(schema.stepExecutions.id, id));
+      return row ? toStepRecord(row) : null;
     },
     findByInstance: async (instanceId) => {
-      const res = await db.query(
-        'SELECT * FROM step_executions WHERE instance_id = $1 ORDER BY started_at ASC',
-        [instanceId],
-      );
-      return res.rows.map(mapStep);
+      const rows = await db
+        .select()
+        .from(schema.stepExecutions)
+        .where(eq(schema.stepExecutions.instanceId, instanceId))
+        .orderBy(asc(schema.stepExecutions.startedAt));
+      return rows.map(toStepRecord);
     },
     update: async (step) => {
-      const res = await db.query(
-        `UPDATE step_executions SET status=$2, output=$3, error_message=$4, finished_at=$5, duration_ms=$6 WHERE id=$1 RETURNING *`,
-        [
-          step.id,
-          step.status,
-          step.output ? JSON.stringify(step.output) : null,
-          step.errorMessage,
-          step.finishedAt,
-          step.durationMs,
-        ],
-      );
-      if (!res.rows[0]) throw new NotFoundError('StepExecution', step.id);
-      return mapStep(res.rows[0]);
+      const [updated] = await db
+        .update(schema.stepExecutions)
+        .set({
+          status: step.status,
+          output: step.output,
+          errorMessage: step.errorMessage,
+          finishedAt: step.finishedAt,
+          durationMs: step.durationMs,
+        })
+        .where(eq(schema.stepExecutions.id, step.id))
+        .returning();
+      if (!updated) throw new NotFoundError('StepExecution', step.id);
+      return toStepRecord(updated);
     },
   };
 
   const userTasks: IUserTaskRepository = {
     create: async (t) => {
-      const res = await db.query(
-        `INSERT INTO user_tasks (id, instance_id, token_id, node_id, title, description, candidate_group, assignee, status, form_schema, payload, resolution, due_at, created_at, updated_at, completed_at)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) RETURNING *`,
-        [
-          t.id,
-          t.instanceId,
-          t.tokenId,
-          t.nodeId,
-          t.title,
-          t.description,
-          t.candidateGroup,
-          t.assignee,
-          t.status,
-          JSON.stringify(t.formSchema),
-          JSON.stringify(t.payload),
-          t.resolution ? JSON.stringify(t.resolution) : null,
-          t.dueAt,
-          t.createdAt,
-          t.updatedAt,
-          t.completedAt,
-        ],
-      );
-      return mapTask(res.rows[0]!);
+      const [row] = await db
+        .insert(schema.userTasks)
+        .values({
+          id: t.id,
+          instanceId: t.instanceId,
+          tokenId: t.tokenId,
+          nodeId: t.nodeId,
+          title: t.title,
+          description: t.description,
+          stage: t.stage,
+          candidateGroup: t.candidateGroup,
+          assignee: t.assignee,
+          delegatedFrom: t.delegatedFrom,
+          status: t.status,
+          formSchema: t.formSchema,
+          payload: t.payload,
+          resolution: t.resolution,
+          requiredApprovals: t.requiredApprovals,
+          approvalsReceived: t.approvalsReceived,
+          dueAt: t.dueAt,
+          slaBreached: t.slaBreached,
+          escalateTo: t.escalateTo,
+          escalationLevel: t.escalationLevel,
+          createdAt: t.createdAt,
+          updatedAt: t.updatedAt,
+          completedAt: t.completedAt,
+        })
+        .returning();
+      return toTaskRecord(row!);
     },
     findById: async (id) => {
-      const res = await db.query('SELECT * FROM user_tasks WHERE id = $1', [id]);
-      return res.rows[0] ? mapTask(res.rows[0]) : null;
+      const [row] = await db.select().from(schema.userTasks).where(eq(schema.userTasks.id, id));
+      return row ? toTaskRecord(row) : null;
     },
     list: async (filters) => {
-      const clauses: string[] = [];
-      const params: unknown[] = [];
-      if (filters?.status) {
-        params.push(filters.status);
-        clauses.push(`status = $${params.length}`);
-      }
-      if (filters?.assignee) {
-        params.push(filters.assignee);
-        clauses.push(`assignee = $${params.length}`);
-      }
+      const conditions = [];
+      if (filters?.status) conditions.push(eq(schema.userTasks.status, filters.status));
+      if (filters?.assignee) conditions.push(eq(schema.userTasks.assignee, filters.assignee));
       if (filters?.candidateGroup) {
-        params.push(filters.candidateGroup);
-        clauses.push(`candidate_group = $${params.length}`);
+        conditions.push(eq(schema.userTasks.candidateGroup, filters.candidateGroup));
       }
-      if (filters?.instanceId) {
-        params.push(filters.instanceId);
-        clauses.push(`instance_id = $${params.length}`);
-      }
-      const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
-      const res = await db.query(
-        `SELECT * FROM user_tasks ${where} ORDER BY created_at DESC`,
-        params,
-      );
-      return res.rows.map(mapTask);
+      if (filters?.instanceId) conditions.push(eq(schema.userTasks.instanceId, filters.instanceId));
+      const rows = await db
+        .select()
+        .from(schema.userTasks)
+        .where(conditions.length > 0 ? and(...conditions) : undefined)
+        .orderBy(desc(schema.userTasks.createdAt));
+      return rows.map(toTaskRecord);
+    },
+    findOverdueTasks: async (now, limit = 50) => {
+      const rows = await db
+        .select()
+        .from(schema.userTasks)
+        .where(
+          and(
+            inArray(schema.userTasks.status, ['OPEN', 'CLAIMED']),
+            eq(schema.userTasks.slaBreached, false),
+            isNotNull(schema.userTasks.dueAt),
+            lte(schema.userTasks.dueAt, now),
+          ),
+        )
+        .orderBy(asc(schema.userTasks.dueAt))
+        .limit(limit);
+      return rows.map(toTaskRecord);
     },
     update: async (t) => {
-      const res = await db.query(
-        `UPDATE user_tasks SET assignee=$2, status=$3, resolution=$4, completed_at=$5, updated_at=NOW() WHERE id=$1 RETURNING *`,
-        [
-          t.id,
-          t.assignee,
-          t.status,
-          t.resolution ? JSON.stringify(t.resolution) : null,
-          t.completedAt,
-        ],
-      );
-      if (!res.rows[0]) throw new NotFoundError('UserTask', t.id);
-      return mapTask(res.rows[0]);
+      const [updated] = await db
+        .update(schema.userTasks)
+        .set({
+          assignee: t.assignee,
+          delegatedFrom: t.delegatedFrom,
+          status: t.status,
+          resolution: t.resolution,
+          approvalsReceived: t.approvalsReceived,
+          slaBreached: t.slaBreached,
+          escalateTo: t.escalateTo,
+          escalationLevel: t.escalationLevel,
+          completedAt: t.completedAt,
+          updatedAt: new Date(),
+        })
+        .where(eq(schema.userTasks.id, t.id))
+        .returning();
+      if (!updated) throw new NotFoundError('UserTask', t.id);
+      return toTaskRecord(updated);
+    },
+  };
+
+  const caseComments: ICaseCommentRepository = {
+    create: async (comment) => {
+      const [row] = await db
+        .insert(schema.caseComments)
+        .values({
+          id: comment.id,
+          instanceId: comment.instanceId,
+          authorId: comment.authorId,
+          authorEmail: comment.authorEmail,
+          body: comment.body,
+          createdAt: comment.createdAt,
+        })
+        .returning();
+      return row!;
+    },
+    findByInstance: async (instanceId) => {
+      return db
+        .select()
+        .from(schema.caseComments)
+        .where(eq(schema.caseComments.instanceId, instanceId))
+        .orderBy(asc(schema.caseComments.createdAt));
     },
   };
 
   const subscriptions: ISubscriptionRepository = {
     create: async (s) => {
-      const res = await db.query(
-        `INSERT INTO event_subscriptions (id, instance_id, token_id, node_id, type, message_name, correlation_key, trigger_at, status, payload, created_at, triggered_at)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING *`,
-        [
-          s.id,
-          s.instanceId,
-          s.tokenId,
-          s.nodeId,
-          s.type,
-          s.messageName,
-          s.correlationKey,
-          s.triggerAt,
-          s.status,
-          s.payload ? JSON.stringify(s.payload) : null,
-          s.createdAt,
-          s.triggeredAt,
-        ],
-      );
-      return mapSubscription(res.rows[0]!);
+      const [row] = await db
+        .insert(schema.eventSubscriptions)
+        .values({
+          id: s.id,
+          instanceId: s.instanceId,
+          tokenId: s.tokenId,
+          nodeId: s.nodeId,
+          type: s.type,
+          messageName: s.messageName,
+          correlationKey: s.correlationKey,
+          triggerAt: s.triggerAt,
+          status: s.status,
+          payload: s.payload,
+          createdAt: s.createdAt,
+          triggeredAt: s.triggeredAt,
+        })
+        .returning();
+      return toSubscriptionRecord(row!);
     },
     findActiveMessage: async (messageName, correlationKey) => {
-      const res = await db.query(
-        `SELECT * FROM event_subscriptions WHERE status = 'ACTIVE' AND type = 'MESSAGE' AND message_name = $1 AND (correlation_key = $2 OR correlation_key IS NULL)`,
-        [messageName, correlationKey],
-      );
-      return res.rows.map(mapSubscription);
+      const rows = await db
+        .select()
+        .from(schema.eventSubscriptions)
+        .where(
+          and(
+            eq(schema.eventSubscriptions.status, 'ACTIVE'),
+            eq(schema.eventSubscriptions.type, 'MESSAGE'),
+            eq(schema.eventSubscriptions.messageName, messageName),
+            or(
+              eq(schema.eventSubscriptions.correlationKey, correlationKey),
+              isNull(schema.eventSubscriptions.correlationKey),
+            ),
+          ),
+        );
+      return rows.map(toSubscriptionRecord);
     },
     findDueTimers: async (now, limit = 50) => {
-      const res = await db.query(
-        `SELECT * FROM event_subscriptions WHERE status = 'ACTIVE' AND type = 'TIMER' AND trigger_at <= $1 ORDER BY trigger_at ASC LIMIT $2`,
-        [now, limit],
-      );
-      return res.rows.map(mapSubscription);
+      const rows = await db
+        .select()
+        .from(schema.eventSubscriptions)
+        .where(
+          and(
+            eq(schema.eventSubscriptions.status, 'ACTIVE'),
+            eq(schema.eventSubscriptions.type, 'TIMER'),
+            lte(schema.eventSubscriptions.triggerAt, now),
+          ),
+        )
+        .orderBy(asc(schema.eventSubscriptions.triggerAt))
+        .limit(limit);
+      return rows.map(toSubscriptionRecord);
     },
     findByInstance: async (instanceId) => {
-      const res = await db.query('SELECT * FROM event_subscriptions WHERE instance_id = $1', [
-        instanceId,
-      ]);
-      return res.rows.map(mapSubscription);
+      const rows = await db
+        .select()
+        .from(schema.eventSubscriptions)
+        .where(eq(schema.eventSubscriptions.instanceId, instanceId));
+      return rows.map(toSubscriptionRecord);
     },
     update: async (s) => {
-      const res = await db.query(
-        `UPDATE event_subscriptions SET status=$2, payload=$3, triggered_at=$4 WHERE id=$1 RETURNING *`,
-        [s.id, s.status, s.payload ? JSON.stringify(s.payload) : null, s.triggeredAt],
-      );
-      if (!res.rows[0]) throw new NotFoundError('EventSubscription', s.id);
-      return mapSubscription(res.rows[0]);
+      const [updated] = await db
+        .update(schema.eventSubscriptions)
+        .set({
+          status: s.status,
+          payload: s.payload,
+          triggeredAt: s.triggeredAt,
+        })
+        .where(eq(schema.eventSubscriptions.id, s.id))
+        .returning();
+      if (!updated) throw new NotFoundError('EventSubscription', s.id);
+      return toSubscriptionRecord(updated);
     },
   };
 
   const incidents: IIncidentRepository = {
     create: async (inc) => {
-      const res = await db.query(
-        `INSERT INTO incidents (id, instance_id, token_id, step_execution_id, node_id, incident_type, message, stack_trace, payload_snapshot, status, resolved_by, resolution_note, created_at, resolved_at)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING *`,
-        [
-          inc.id,
-          inc.instanceId,
-          inc.tokenId,
-          inc.stepExecutionId,
-          inc.nodeId,
-          inc.incidentType,
-          inc.message,
-          inc.stackTrace,
-          JSON.stringify(inc.payloadSnapshot),
-          inc.status,
-          inc.resolvedBy,
-          inc.resolutionNote,
-          inc.createdAt,
-          inc.resolvedAt,
-        ],
-      );
-      return mapIncident(res.rows[0]!);
+      const [row] = await db
+        .insert(schema.incidents)
+        .values({
+          id: inc.id,
+          instanceId: inc.instanceId,
+          tokenId: inc.tokenId,
+          stepExecutionId: inc.stepExecutionId,
+          nodeId: inc.nodeId,
+          incidentType: inc.incidentType,
+          message: inc.message,
+          stackTrace: inc.stackTrace,
+          payloadSnapshot: inc.payloadSnapshot,
+          status: inc.status,
+          resolvedBy: inc.resolvedBy,
+          resolutionNote: inc.resolutionNote,
+          createdAt: inc.createdAt,
+          resolvedAt: inc.resolvedAt,
+        })
+        .returning();
+      return toIncidentRecord(row!);
     },
     findById: async (id) => {
-      const res = await db.query('SELECT * FROM incidents WHERE id = $1', [id]);
-      return res.rows[0] ? mapIncident(res.rows[0]) : null;
+      const [row] = await db.select().from(schema.incidents).where(eq(schema.incidents.id, id));
+      return row ? toIncidentRecord(row) : null;
     },
     list: async (filters) => {
-      const clauses: string[] = [];
-      const params: unknown[] = [];
-      if (filters?.status) {
-        params.push(filters.status);
-        clauses.push(`status = $${params.length}`);
-      }
-      if (filters?.instanceId) {
-        params.push(filters.instanceId);
-        clauses.push(`instance_id = $${params.length}`);
-      }
-      const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
-      const res = await db.query(`SELECT * FROM incidents ${where} ORDER BY created_at DESC`, params);
-      return res.rows.map(mapIncident);
+      const conditions = [];
+      if (filters?.status) conditions.push(eq(schema.incidents.status, filters.status));
+      if (filters?.instanceId) conditions.push(eq(schema.incidents.instanceId, filters.instanceId));
+      const rows = await db
+        .select()
+        .from(schema.incidents)
+        .where(conditions.length > 0 ? and(...conditions) : undefined)
+        .orderBy(desc(schema.incidents.createdAt));
+      return rows.map(toIncidentRecord);
     },
     update: async (inc) => {
-      const res = await db.query(
-        `UPDATE incidents SET status=$2, resolved_by=$3, resolution_note=$4, resolved_at=$5 WHERE id=$1 RETURNING *`,
-        [inc.id, inc.status, inc.resolvedBy, inc.resolutionNote, inc.resolvedAt],
-      );
-      if (!res.rows[0]) throw new NotFoundError('Incident', inc.id);
-      return mapIncident(res.rows[0]);
+      const [updated] = await db
+        .update(schema.incidents)
+        .set({
+          status: inc.status,
+          resolvedBy: inc.resolvedBy,
+          resolutionNote: inc.resolutionNote,
+          resolvedAt: inc.resolvedAt,
+        })
+        .where(eq(schema.incidents.id, inc.id))
+        .returning();
+      if (!updated) throw new NotFoundError('Incident', inc.id);
+      return toIncidentRecord(updated);
     },
   };
 
   const jobs: IJobRepository = {
     enqueue: async (job) => {
-      const res = await db.query(
-        `INSERT INTO execution_jobs (id, instance_id, token_id, node_id, job_type, payload, status, attempts, max_attempts, available_at, locked_by, locked_at, last_error, created_at, updated_at)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) RETURNING *`,
-        [
-          job.id,
-          job.instanceId,
-          job.tokenId,
-          job.nodeId,
-          job.jobType,
-          JSON.stringify(job.payload),
-          job.status,
-          job.attempts,
-          job.maxAttempts,
-          job.availableAt,
-          job.lockedBy,
-          job.lockedAt,
-          job.lastError,
-          job.createdAt,
-          job.updatedAt,
-        ],
-      );
-      return mapJob(res.rows[0]!);
+      const [row] = await db
+        .insert(schema.executionJobs)
+        .values({
+          id: job.id,
+          instanceId: job.instanceId,
+          tokenId: job.tokenId,
+          nodeId: job.nodeId,
+          jobType: job.jobType,
+          payload: job.payload,
+          status: job.status,
+          attempts: job.attempts,
+          maxAttempts: job.maxAttempts,
+          availableAt: job.availableAt,
+          lockedBy: job.lockedBy,
+          lockedAt: job.lockedAt,
+          lastError: job.lastError,
+          createdAt: job.createdAt,
+          updatedAt: job.updatedAt,
+        })
+        .returning();
+      return toJobRecord(row!);
     },
     claimNextBatch: async (workerId, limit, now) => {
-      const res = await db.query(
-        `WITH next_jobs AS (
-           SELECT id FROM execution_jobs
-           WHERE status = 'PENDING' AND available_at <= $2
-           ORDER BY available_at ASC
-           LIMIT $3
-           FOR UPDATE SKIP LOCKED
-         )
-         UPDATE execution_jobs j
-         SET status = 'PROCESSING', locked_by = $1, locked_at = $2, updated_at = NOW()
-         FROM next_jobs
-         WHERE j.id = next_jobs.id
-         RETURNING j.*`,
-        [workerId, now, limit],
-      );
-      return res.rows.map(mapJob);
+      return db.transaction(async (tx) => {
+        const candidates = await tx
+          .select({ id: schema.executionJobs.id })
+          .from(schema.executionJobs)
+          .where(
+            and(
+              eq(schema.executionJobs.status, 'PENDING'),
+              lte(schema.executionJobs.availableAt, now),
+            ),
+          )
+          .orderBy(asc(schema.executionJobs.availableAt))
+          .limit(limit)
+          .for('update', { skipLocked: true });
+
+        if (candidates.length === 0) return [];
+
+        const ids = candidates.map((c) => c.id);
+        const claimed = await tx
+          .update(schema.executionJobs)
+          .set({
+            status: 'PROCESSING',
+            lockedBy: workerId,
+            lockedAt: now,
+            updatedAt: now,
+          })
+          .where(inArray(schema.executionJobs.id, ids))
+          .returning();
+
+        return claimed.map(toJobRecord);
+      });
     },
     complete: async (jobId) => {
-      await db.query(`UPDATE execution_jobs SET status = 'COMPLETED', updated_at = NOW() WHERE id = $1`, [
-        jobId,
-      ]);
+      await db
+        .update(schema.executionJobs)
+        .set({ status: 'COMPLETED', updatedAt: new Date() })
+        .where(eq(schema.executionJobs.id, jobId));
     },
     reschedule: async (jobId, availableAt, attempts, lastError) => {
-      await db.query(
-        `UPDATE execution_jobs SET status = 'PENDING', available_at = $2, attempts = $3, last_error = $4, locked_by = NULL, locked_at = NULL, updated_at = NOW() WHERE id = $1`,
-        [jobId, availableAt, attempts, lastError],
-      );
+      await db
+        .update(schema.executionJobs)
+        .set({
+          status: 'PENDING',
+          availableAt,
+          attempts,
+          lastError,
+          lockedBy: null,
+          lockedAt: null,
+          updatedAt: new Date(),
+        })
+        .where(eq(schema.executionJobs.id, jobId));
     },
     markDead: async (jobId, attempts, lastError) => {
-      await db.query(
-        `UPDATE execution_jobs SET status = 'DEAD', attempts = $2, last_error = $3, updated_at = NOW() WHERE id = $1`,
-        [jobId, attempts, lastError],
-      );
+      await db
+        .update(schema.executionJobs)
+        .set({
+          status: 'DEAD',
+          attempts,
+          lastError,
+          updatedAt: new Date(),
+        })
+        .where(eq(schema.executionJobs.id, jobId));
     },
   };
 
   const outbox: IOutboxRepository = {
     append: async (event) => {
-      const res = await db.query(
-        `INSERT INTO outbox_events (id, aggregate_type, aggregate_id, event_type, payload, status, attempts, created_at, published_at)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`,
-        [
-          event.id,
-          event.aggregateType,
-          event.aggregateId,
-          event.eventType,
-          JSON.stringify(event.payload),
-          event.status,
-          event.attempts,
-          event.createdAt,
-          event.publishedAt,
-        ],
-      );
-      return mapOutbox(res.rows[0]!);
+      const [row] = await db
+        .insert(schema.outboxEvents)
+        .values({
+          id: event.id,
+          aggregateType: event.aggregateType,
+          aggregateId: event.aggregateId,
+          eventType: event.eventType,
+          payload: event.payload,
+          status: event.status,
+          attempts: event.attempts,
+          createdAt: event.createdAt,
+          publishedAt: event.publishedAt,
+        })
+        .returning();
+      return toOutboxRecord(row!);
     },
     fetchPending: async (limit) => {
-      const res = await db.query(
-        `SELECT * FROM outbox_events WHERE status = 'PENDING' ORDER BY created_at ASC LIMIT $1`,
-        [limit],
-      );
-      return res.rows.map(mapOutbox);
+      const rows = await db
+        .select()
+        .from(schema.outboxEvents)
+        .where(eq(schema.outboxEvents.status, 'PENDING'))
+        .orderBy(asc(schema.outboxEvents.createdAt))
+        .limit(limit);
+      return rows.map(toOutboxRecord);
     },
     markPublished: async (id, publishedAt) => {
-      await db.query(`UPDATE outbox_events SET status = 'PUBLISHED', published_at = $2 WHERE id = $1`, [
-        id,
-        publishedAt,
-      ]);
+      await db
+        .update(schema.outboxEvents)
+        .set({ status: 'PUBLISHED', publishedAt })
+        .where(eq(schema.outboxEvents.id, id));
     },
     markFailed: async (id) => {
-      await db.query(
-        `UPDATE outbox_events SET attempts = attempts + 1, status = CASE WHEN attempts + 1 >= 5 THEN 'FAILED' ELSE 'PENDING' END WHERE id = $1`,
-        [id],
-      );
+      await db
+        .update(schema.outboxEvents)
+        .set({
+          attempts: sql`${schema.outboxEvents.attempts} + 1`,
+          status: sql`CASE WHEN ${schema.outboxEvents.attempts} + 1 >= 5 THEN 'FAILED' ELSE 'PENDING' END`,
+        })
+        .where(eq(schema.outboxEvents.id, id));
     },
   };
 
   const credentials: ICredentialRepository = {
     create: async (record) => {
       try {
-        const res = await db.query(
-          `INSERT INTO credentials (id, name, type, key_id, iv, auth_tag, ciphertext, created_by, created_at, updated_at)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *`,
-          [
-            record.id,
-            record.name,
-            record.type,
-            record.keyId,
-            record.iv,
-            record.authTag,
-            record.ciphertext,
-            record.createdBy,
-            record.createdAt,
-            record.updatedAt,
-          ],
-        );
-        return mapCredential(res.rows[0]!);
+        const [row] = await db
+          .insert(schema.credentials)
+          .values({
+            id: record.id,
+            name: record.name,
+            type: record.type,
+            keyId: record.keyId,
+            iv: record.iv,
+            authTag: record.authTag,
+            ciphertext: record.ciphertext,
+            createdBy: record.createdBy,
+            createdAt: record.createdAt,
+            updatedAt: record.updatedAt,
+          })
+          .returning();
+        return toCredentialRecord(row!);
       } catch (err: unknown) {
         if ((err as { code?: string }).code === '23505') {
           throw new ConflictError(`Credential '${record.name}' already exists`);
@@ -823,49 +759,64 @@ function buildRegistry(db: Queryable): IRepositoryRegistry {
       }
     },
     findById: async (id) => {
-      const res = await db.query('SELECT * FROM credentials WHERE id = $1', [id]);
-      return res.rows[0] ? mapCredential(res.rows[0]) : null;
+      const [row] = await db.select().from(schema.credentials).where(eq(schema.credentials.id, id));
+      return row ? toCredentialRecord(row) : null;
     },
     findByName: async (name) => {
-      const res = await db.query('SELECT * FROM credentials WHERE name = $1', [name]);
-      return res.rows[0] ? mapCredential(res.rows[0]) : null;
+      const [row] = await db
+        .select()
+        .from(schema.credentials)
+        .where(eq(schema.credentials.name, name));
+      return row ? toCredentialRecord(row) : null;
     },
     list: async () => {
-      const res = await db.query('SELECT * FROM credentials ORDER BY created_at DESC');
-      return res.rows.map(mapCredential);
+      const rows = await db
+        .select()
+        .from(schema.credentials)
+        .orderBy(desc(schema.credentials.createdAt));
+      return rows.map(toCredentialRecord);
     },
     update: async (record) => {
-      const res = await db.query(
-        `UPDATE credentials SET key_id=$2, iv=$3, auth_tag=$4, ciphertext=$5, updated_at=NOW() WHERE id=$1 RETURNING *`,
-        [record.id, record.keyId, record.iv, record.authTag, record.ciphertext],
-      );
-      if (!res.rows[0]) throw new NotFoundError('Credential', record.id);
-      return mapCredential(res.rows[0]);
+      const [updated] = await db
+        .update(schema.credentials)
+        .set({
+          keyId: record.keyId,
+          iv: record.iv,
+          authTag: record.authTag,
+          ciphertext: record.ciphertext,
+          updatedAt: new Date(),
+        })
+        .where(eq(schema.credentials.id, record.id))
+        .returning();
+      if (!updated) throw new NotFoundError('Credential', record.id);
+      return toCredentialRecord(updated);
     },
     delete: async (id) => {
-      const res = await db.query('DELETE FROM credentials WHERE id = $1', [id]);
-      if ((res.rowCount ?? 0) === 0) throw new NotFoundError('Credential', id);
+      const deleted = await db
+        .delete(schema.credentials)
+        .where(eq(schema.credentials.id, id))
+        .returning({ id: schema.credentials.id });
+      if (deleted.length === 0) throw new NotFoundError('Credential', id);
     },
   };
 
   const users: IUserRepository = {
     create: async (user) => {
       try {
-        const res = await db.query(
-          `INSERT INTO users (id, email, name, password_hash, role, is_active, created_at, updated_at)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
-          [
-            user.id,
-            user.email,
-            user.name,
-            user.passwordHash,
-            user.role,
-            user.isActive,
-            user.createdAt,
-            user.updatedAt,
-          ],
-        );
-        return mapUser(res.rows[0]!);
+        const [row] = await db
+          .insert(schema.users)
+          .values({
+            id: user.id,
+            email: user.email,
+            name: user.name,
+            passwordHash: user.passwordHash,
+            role: user.role,
+            isActive: user.isActive,
+            createdAt: user.createdAt,
+            updatedAt: user.updatedAt,
+          })
+          .returning();
+        return { ...row!, role: row!.role as Role };
       } catch (err: unknown) {
         if ((err as { code?: string }).code === '23505') {
           throw new ConflictError(`User '${user.email}' already exists`);
@@ -874,77 +825,76 @@ function buildRegistry(db: Queryable): IRepositoryRegistry {
       }
     },
     findById: async (id) => {
-      const res = await db.query('SELECT * FROM users WHERE id = $1', [id]);
-      return res.rows[0] ? mapUser(res.rows[0]) : null;
+      const [row] = await db.select().from(schema.users).where(eq(schema.users.id, id));
+      return row ? { ...row, role: row.role as Role } : null;
     },
     findByEmail: async (email) => {
-      const res = await db.query('SELECT * FROM users WHERE LOWER(email) = LOWER($1)', [email]);
-      return res.rows[0] ? mapUser(res.rows[0]) : null;
+      const [row] = await db
+        .select()
+        .from(schema.users)
+        .where(sql`LOWER(${schema.users.email}) = LOWER(${email})`);
+      return row ? { ...row, role: row.role as Role } : null;
     },
     count: async () => {
-      const res = await db.query<{ cnt: string }>('SELECT COUNT(*)::text AS cnt FROM users');
-      return Number(res.rows[0]?.cnt ?? 0);
+      const [row] = await db.select({ cnt: drizzleCount() }).from(schema.users);
+      return Number(row?.cnt ?? 0);
     },
     createApiKey: async (apiKey) => {
-      const res = await db.query(
-        `INSERT INTO api_keys (id, user_id, name, key_prefix, key_hash, role, expires_at, last_used_at, created_at)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`,
-        [
-          apiKey.id,
-          apiKey.userId,
-          apiKey.name,
-          apiKey.keyPrefix,
-          apiKey.keyHash,
-          apiKey.role,
-          apiKey.expiresAt,
-          apiKey.lastUsedAt,
-          apiKey.createdAt,
-        ],
-      );
-      return mapApiKey(res.rows[0]!);
+      const [row] = await db
+        .insert(schema.apiKeys)
+        .values({
+          id: apiKey.id,
+          userId: apiKey.userId,
+          name: apiKey.name,
+          keyPrefix: apiKey.keyPrefix,
+          keyHash: apiKey.keyHash,
+          role: apiKey.role,
+          expiresAt: apiKey.expiresAt,
+          lastUsedAt: apiKey.lastUsedAt,
+          createdAt: apiKey.createdAt,
+        })
+        .returning();
+      return { ...row!, role: row!.role as Role };
     },
     findApiKeyByHash: async (keyHash) => {
-      const res = await db.query('SELECT * FROM api_keys WHERE key_hash = $1', [keyHash]);
-      return res.rows[0] ? mapApiKey(res.rows[0]) : null;
+      const [row] = await db
+        .select()
+        .from(schema.apiKeys)
+        .where(eq(schema.apiKeys.keyHash, keyHash));
+      return row ? { ...row, role: row.role as Role } : null;
     },
     touchApiKey: async (id, usedAt) => {
-      await db.query('UPDATE api_keys SET last_used_at = $2 WHERE id = $1', [id, usedAt]);
+      await db.update(schema.apiKeys).set({ lastUsedAt: usedAt }).where(eq(schema.apiKeys.id, id));
     },
   };
 
   const idempotency: IIdempotencyRepository = {
     find: async (key, scope, now) => {
-      const res = await db.query(
-        'SELECT * FROM idempotency_keys WHERE key = $1 AND scope = $2 AND expires_at > $3',
-        [key, scope, now],
-      );
-      const row = res.rows[0];
-      if (!row) return null;
-      return {
-        key: String(row.key),
-        scope: String(row.scope),
-        requestHash: String(row.request_hash),
-        statusCode: Number(row.status_code),
-        responseBody: row.response_body,
-        createdAt: new Date(String(row.created_at)),
-        expiresAt: new Date(String(row.expires_at)),
-      };
+      const [row] = await db
+        .select()
+        .from(schema.idempotencyKeys)
+        .where(
+          and(
+            eq(schema.idempotencyKeys.key, key),
+            eq(schema.idempotencyKeys.scope, scope),
+            gt(schema.idempotencyKeys.expiresAt, now),
+          ),
+        );
+      return row ?? null;
     },
     save: async (record) => {
-      await db.query(
-        `INSERT INTO idempotency_keys (key, scope, request_hash, status_code, response_body, created_at, expires_at)
-         VALUES ($1,$2,$3,$4,$5,$6,$7)
-         ON CONFLICT (key, scope) DO UPDATE SET request_hash=$3, status_code=$4, response_body=$5, expires_at=$7`,
-        [
-          record.key,
-          record.scope,
-          record.requestHash,
-          record.statusCode,
-          JSON.stringify(record.responseBody),
-          record.createdAt,
-          record.expiresAt,
-        ],
-      );
+      await db
+        .insert(schema.idempotencyKeys)
+        .values(record)
+        .onConflictDoUpdate({
+          target: [schema.idempotencyKeys.key, schema.idempotencyKeys.scope],
+          set: {
+            requestHash: record.requestHash,
+            statusCode: record.statusCode,
+            responseBody: record.responseBody,
+            expiresAt: record.expiresAt,
+          },
+        });
     },
   };
 
@@ -954,6 +904,7 @@ function buildRegistry(db: Queryable): IRepositoryRegistry {
     tokens,
     steps,
     userTasks,
+    caseComments,
     subscriptions,
     incidents,
     jobs,
@@ -964,27 +915,75 @@ function buildRegistry(db: Queryable): IRepositoryRegistry {
   };
 }
 
+function toWorkflowRecord(row: typeof schema.workflows.$inferSelect): WorkflowDefinitionRecord {
+  return { ...row, status: row.status as WorkflowStatus };
+}
+
+function toInstanceRecord(row: typeof schema.workflowInstances.$inferSelect): WorkflowInstance {
+  return {
+    ...row,
+    status: row.status as WorkflowInstance['status'],
+    slaStatus: row.slaStatus as WorkflowInstance['slaStatus'],
+  };
+}
+
+function toTokenRecord(row: typeof schema.executionTokens.$inferSelect): ExecutionToken {
+  return { ...row, status: row.status as ExecutionToken['status'] };
+}
+
+function toStepRecord(row: typeof schema.stepExecutions.$inferSelect): StepExecution {
+  return { ...row, status: row.status as StepExecution['status'] };
+}
+
+function toTaskRecord(row: typeof schema.userTasks.$inferSelect): UserTask {
+  return { ...row, status: row.status as UserTask['status'] };
+}
+
+function toSubscriptionRecord(row: typeof schema.eventSubscriptions.$inferSelect): EventSubscription {
+  return {
+    ...row,
+    type: row.type as EventSubscription['type'],
+    status: row.status as EventSubscription['status'],
+  };
+}
+
+function toIncidentRecord(row: typeof schema.incidents.$inferSelect): Incident {
+  return { ...row, status: row.status as Incident['status'] };
+}
+
+function toJobRecord(row: typeof schema.executionJobs.$inferSelect): ExecutionJob {
+  return {
+    ...row,
+    jobType: row.jobType as ExecutionJob['jobType'],
+    status: row.status as ExecutionJob['status'],
+  };
+}
+
+function toOutboxRecord(row: typeof schema.outboxEvents.$inferSelect): OutboxEvent {
+  return { ...row, status: row.status as OutboxEvent['status'] };
+}
+
+function toCredentialRecord(row: typeof schema.credentials.$inferSelect): CredentialRecord {
+  return { ...row, type: row.type as CredentialRecord['type'] };
+}
+
+/**
+ * Drizzle ORM Unit of Work for PostgreSQL.
+ */
 export class PostgresUnitOfWork implements IUnitOfWork {
+  public readonly db: DrizzleDb;
   public readonly repos: IRepositoryRegistry;
 
   constructor(private readonly pool: Pool) {
-    this.repos = buildRegistry(pool);
+    this.db = drizzle(pool, { schema });
+    this.repos = buildDrizzleRegistry(this.db);
   }
 
   async runInTransaction<T>(fn: (repos: IRepositoryRegistry) => Promise<T>): Promise<T> {
-    const client: PoolClient = await this.pool.connect();
-    try {
-      await client.query('BEGIN');
-      const txRepos = buildRegistry(client);
-      const result = await fn(txRepos);
-      await client.query('COMMIT');
-      return result;
-    } catch (err) {
-      await client.query('ROLLBACK');
-      throw err;
-    } finally {
-      client.release();
-    }
+    return this.db.transaction(async (tx) => {
+      const txRepos = buildDrizzleRegistry(tx as unknown as DrizzleDb);
+      return fn(txRepos);
+    });
   }
 
   async healthCheck(): Promise<boolean> {
@@ -1001,3 +1000,4 @@ export class PostgresUnitOfWork implements IUnitOfWork {
   }
 }
 
+export type { CaseComment };

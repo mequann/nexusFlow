@@ -32,6 +32,8 @@ export type NodeExecutionOutcome =
         formSchema: Record<string, unknown>;
         payload: Record<string, unknown>;
         dueAt: Date | null;
+        escalateTo: string | null;
+        requiredApprovals: number;
       };
     }
   | {
@@ -279,7 +281,14 @@ export class NodeExecutorRegistry {
 
     this.register('bpmn.user_task', async (ctx) => {
       const cfg = resolveTemplates(ctx.node.config, ctx.scope) as Record<string, unknown>;
-      const dueInMs = cfg.dueInMs ? Number(cfg.dueInMs) : null;
+      const dueInMs = cfg.dueInMs
+        ? Number(cfg.dueInMs)
+        : cfg.slaMinutes
+          ? Number(cfg.slaMinutes) * 60_000
+          : null;
+      const requiredApprovals = cfg.requiredApprovals
+        ? Math.max(1, Number(cfg.requiredApprovals))
+        : 1;
       return {
         kind: 'WAIT_USER_TASK',
         taskConfig: {
@@ -289,7 +298,9 @@ export class NodeExecutorRegistry {
           assignee: cfg.assignee ? String(cfg.assignee) : null,
           formSchema: (cfg.formSchema as Record<string, unknown> | undefined) ?? {},
           payload: (cfg.payload as Record<string, unknown> | undefined) ?? { ...ctx.scope.$vars },
-          dueAt: dueInMs ? new Date(Date.now() + dueInMs) : null,
+          dueAt: dueInMs !== null ? new Date(Date.now() + dueInMs) : null,
+          escalateTo: cfg.escalateTo ? String(cfg.escalateTo) : null,
+          requiredApprovals,
         },
       };
     });

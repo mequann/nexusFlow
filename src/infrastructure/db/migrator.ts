@@ -48,11 +48,7 @@ const isCli =
 
 if (isCli) {
   const config = loadConfig();
-  if (!config.DATABASE_URL) {
-    console.error('DATABASE_URL is required to run migrations');
-    process.exit(1);
-  }
-  const pool = createPgPool(config.DATABASE_URL);
+  const pool = createPgPool(config);
   runMigrations(pool)
     .then((applied) => {
       console.log('Migrations complete:', applied.length ? applied : 'up to date');
@@ -63,4 +59,3 @@ if (isCli) {
       process.exit(1);
     });
 }
-

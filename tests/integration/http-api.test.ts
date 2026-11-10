@@ -178,6 +178,20 @@ describe('NestJS HTTP API (E2E Integration)', () => {
       .set('authorization', `Bearer ${viewerToken}`)
       .expect(200);
     expect(trace.body.instance.id).toBe(instanceId);
+
+    // 4. Kissflow Case Portal & Collaboration Comments
+    await request(server)
+      .post(`/api/v1/cases/${instanceId}/comments`)
+      .set('authorization', `Bearer ${adminToken}`)
+      .send({ body: 'Reviewed intake payload and approved for processing' })
+      .expect(201);
+
+    const caseSummary = await request(server)
+      .get(`/api/v1/cases/${instanceId}`)
+      .set('authorization', `Bearer ${viewerToken}`)
+      .expect(200);
+    expect(caseSummary.body.instance.id).toBe(instanceId);
+    expect(caseSummary.body.comments).toHaveLength(1);
   });
 });
 

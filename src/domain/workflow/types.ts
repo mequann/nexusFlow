@@ -25,6 +25,8 @@ export interface NodeDefinition {
   id: string;
   name: string;
   type: NodeType;
+  /** Kissflow business case milestone / stage (e.g., 'Intake', 'Finance Review', 'ERP Sync') */
+  stage?: string;
   config: Record<string, unknown>;
   retryPolicy?: RetryPolicy;
   /** Camunda Saga compensation handler node id to run in reverse order on failure */
@@ -50,6 +52,10 @@ export interface WorkflowGraphDefinition {
   edges: EdgeDefinition[];
   defaultRetryPolicy?: RetryPolicy;
   sagaEnabled?: boolean;
+  /** Kissflow ordered business case stages for progress tracking */
+  stages?: string[];
+  /** Kissflow intake form schema validated when starting an instance */
+  intakeFormSchema?: Record<string, unknown>;
 }
 
 export type WorkflowStatus = 'DRAFT' | 'PUBLISHED' | 'ARCHIVED';

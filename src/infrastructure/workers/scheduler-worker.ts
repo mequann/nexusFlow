@@ -2,6 +2,7 @@ import crypto from 'node:crypto';
 import { Inject, Injectable } from '@nestjs/common';
 import cronParser from 'cron-parser';
 import { WorkflowEngine } from '../../application/engine/workflow-engine.js';
+import { TaskService } from '../../application/services/task-service.js';
 import { APP_CONFIG, APP_LOGGER, UNIT_OF_WORK } from '../../application/tokens.js';
 import type { AppConfig } from '../../config/env.js';
 import type { IUnitOfWork } from '../../domain/ports/repositories.js';
@@ -16,6 +17,7 @@ export class SchedulerWorker {
   constructor(
     @Inject(UNIT_OF_WORK) private readonly uow: IUnitOfWork,
     @Inject(WorkflowEngine) private readonly engine: WorkflowEngine,
+    @Inject(TaskService) private readonly taskService: TaskService,
     @Inject(APP_CONFIG) private readonly config: AppConfig,
     @Inject(APP_LOGGER) private readonly logger: ILogger,
   ) {}
@@ -56,11 +58,19 @@ export class SchedulerWorker {
     }, delayMs);
   }
 
-  async tick(now = new Date()): Promise<{ timersFired: number; cronsFired: number; outboxRelayed: number }> {
+  async tick(
+    now = new Date(),
+  ): Promise<{
+    timersFired: number;
+    cronsFired: number;
+    slaEscalated: number;
+    outboxRelayed: number;
+  }> {
     const timersFired = await this.fireDueTimers(now);
     const cronsFired = await this.fireDueCrons(now);
+    const slaEscalated = await this.taskService.escalateOverdueTasks(now);
     const outboxRelayed = await this.relayOutbox();
-    return { timersFired, cronsFired, outboxRelayed };
+    return { timersFired, cronsFired, slaEscalated, outboxRelayed };
   }
 
   async fireDueTimers(now = new Date()): Promise<number> {

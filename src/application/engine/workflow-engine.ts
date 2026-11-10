@@ -19,6 +19,7 @@ import type {
   NodeDefinition,
   WorkflowDefinitionRecord,
 } from '../../domain/workflow/types.js';
+import { validateFormSubmission } from '../../domain/workflow/form-validator.js';
 import type { CircuitBreakerRegistry } from '../../infrastructure/resilience/circuit-breaker.js';
 import {
   DEFAULT_RETRY_POLICY,
@@ -75,6 +76,13 @@ export class WorkflowEngine {
       throw new NotFoundError('TriggerNode', workflow.id);
     }
 
+    if (workflow.definition.intakeFormSchema) {
+      validateFormSubmission(workflow.definition.intakeFormSchema, {
+        ...(input.triggerPayload ?? {}),
+        ...(input.initialVariables ?? {}),
+      });
+    }
+
     const now = new Date();
     const instanceId = crypto.randomUUID();
     const tokenId = crypto.randomUUID();
@@ -86,6 +94,8 @@ export class WorkflowEngine {
       workflowKey: workflow.key,
       workflowVersion: workflow.version,
       status: 'RUNNING',
+      currentStage: triggerNode.stage ?? workflow.definition.stages?.[0] ?? null,
+      slaStatus: 'ON_TRACK',
       triggerType: input.triggerType ?? triggerNode.type,
       triggerPayload: input.triggerPayload ?? {},
       variables: { ...(input.initialVariables ?? {}) },
@@ -348,19 +358,31 @@ export class WorkflowEngine {
             nodeId: node.id,
             title: outcome.taskConfig.title,
             description: outcome.taskConfig.description,
+            stage: node.stage ?? freshInstance.currentStage,
             candidateGroup: outcome.taskConfig.candidateGroup,
             assignee: outcome.taskConfig.assignee,
+            delegatedFrom: null,
             status: 'OPEN',
             formSchema: outcome.taskConfig.formSchema,
             payload: outcome.taskConfig.payload,
             resolution: null,
+            requiredApprovals: outcome.taskConfig.requiredApprovals,
+            approvalsReceived: [],
             dueAt: outcome.taskConfig.dueAt,
+            slaBreached: false,
+            escalateTo: outcome.taskConfig.escalateTo,
+            escalationLevel: 0,
             createdAt: finishedAt,
             updatedAt: finishedAt,
             completedAt: null,
           });
-          if (freshInstance.status !== 'WAITING') {
-            await repos.instances.updateWithOcc({ ...freshInstance, status: 'WAITING' });
+          const nextStage = node.stage ?? freshInstance.currentStage;
+          if (freshInstance.status !== 'WAITING' || nextStage !== freshInstance.currentStage) {
+            await repos.instances.updateWithOcc({
+              ...freshInstance,
+              status: 'WAITING',
+              currentStage: nextStage,
+            });
           }
           await repos.outbox.append({
             id: crypto.randomUUID(),
@@ -450,6 +472,7 @@ export class WorkflowEngine {
           await repos.tokens.update({ ...token, status: 'COMPLETED' });
           const updatedInst = await repos.instances.updateWithOcc({
             ...freshInstance,
+            currentStage: node.stage ?? freshInstance.currentStage,
             variables: nextVariables,
           });
           await this.maybeCompleteInstance(repos, updatedInst);
@@ -460,6 +483,7 @@ export class WorkflowEngine {
         const updatedInst = await repos.instances.updateWithOcc({
           ...freshInstance,
           status: 'RUNNING',
+          currentStage: node.stage ?? freshInstance.currentStage,
           variables: nextVariables,
         });
 

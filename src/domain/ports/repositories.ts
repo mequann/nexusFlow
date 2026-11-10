@@ -1,4 +1,5 @@
 import type {
+  CaseComment,
   EventSubscription,
   ExecutionJob,
   ExecutionToken,
@@ -61,7 +62,13 @@ export interface IUserTaskRepository {
     candidateGroup?: string;
     instanceId?: string;
   }): Promise<UserTask[]>;
+  findOverdueTasks(now: Date, limit?: number): Promise<UserTask[]>;
   update(task: UserTask): Promise<UserTask>;
+}
+
+export interface ICaseCommentRepository {
+  create(comment: CaseComment): Promise<CaseComment>;
+  findByInstance(instanceId: string): Promise<CaseComment[]>;
 }
 
 export interface ISubscriptionRepository {
@@ -134,6 +141,7 @@ export interface IRepositoryRegistry {
   tokens: ITokenRepository;
   steps: IStepRepository;
   userTasks: IUserTaskRepository;
+  caseComments: ICaseCommentRepository;
   subscriptions: ISubscriptionRepository;
   incidents: IIncidentRepository;
   jobs: IJobRepository;
