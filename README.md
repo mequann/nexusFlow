@@ -123,6 +123,7 @@ npm run build       # Emit dist/
 
 ## Documentation
 
+- [Production, Upgrade, Integration & HRIS Directory Guide](docs/production-and-integration-guide.md)
 - [Architecture & Engine Internals](docs/architecture.md)
 - [ADR 001: Why Drizzle ORM for PostgreSQL](docs/adr/001-drizzle-orm-postgresql.md)
 - [Drizzle ORM Schema](src/infrastructure/db/schema.ts)
