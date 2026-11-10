@@ -56,11 +56,19 @@ Then run migrations, seed the real-world **Enterprise Procurement & CapEx Approv
 
 ```bash
 npm install
-npm run migrate     # Applies migrations/001_initial_schema.sql & 002_kissflow_case_sla.sql
+npm run migrate     # Applies migrations/001_initial_schema.sql, 002 & 003
 npm run seed        # Seeds admin user + procurement-capex-approval workflow
 npm run dev         # Starts NestJS API + embedded workers on http://localhost:3000
 ```
 
+### Frontend Control Plane (`frontend/`)
+Start **NexusFlow Studio** (React 19 + TypeScript + Vite) in a second terminal:
+```bash
+npm --prefix frontend install
+npm run dev:frontend   # Opens http://localhost:5173 (proxied to http://localhost:3000)
+```
+
+- **NexusFlow Studio UI**: `http://localhost:5173` (Sign in with `admin@nexusflow.local` / `AdminChangeMe123!`)
 - **Swagger OpenAPI Docs**: `http://localhost:3000/docs`
 - **Prometheus Metrics**: `http://localhost:3000/metrics`
 - **Drizzle Studio**: `npm run db:studio`
