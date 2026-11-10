@@ -533,6 +533,8 @@ export function WorkflowDesigner({
   };
 
   const wiringFromNode = wiringFromId ? nodes.find((n) => n.id === wiringFromId) : null;
+  const canvasWidth = Math.max(1400, ...nodes.map((n) => (n.position?.x ?? 0) + 340));
+  const canvasHeight = Math.max(760, ...nodes.map((n) => (n.position?.y ?? 0) + 260));
 
   return (
     <div style={{ display: 'grid', gap: 14 }}>
@@ -680,8 +682,8 @@ export function WorkflowDesigner({
             )}
           </div>
 
-          <div className="canvas-inner">
-            <svg width={1400} height={760} style={{ position: 'absolute', inset: 0 }}>
+          <div className="canvas-inner" style={{ width: canvasWidth, height: canvasHeight }}>
+            <svg width={canvasWidth} height={canvasHeight} style={{ position: 'absolute', inset: 0 }}>
               <defs>
                 <marker id="studio-arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
                   <path d="M0,0 L8,4 L0,8 Z" fill="#818cf8" />

@@ -31,6 +31,7 @@ export interface IWorkflowRepository {
 export interface IInstanceRepository {
   create(instance: WorkflowInstance): Promise<WorkflowInstance>;
   findById(id: string): Promise<WorkflowInstance | null>;
+  findByIdForUpdate(id: string): Promise<WorkflowInstance | null>;
   list(filters?: {
     status?: InstanceStatus;
     workflowKey?: string;

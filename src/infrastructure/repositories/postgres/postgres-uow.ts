@@ -205,6 +205,14 @@ function buildDrizzleRegistry(db: DrizzleDb): IRepositoryRegistry {
         .where(eq(schema.workflowInstances.id, id));
       return row ? toInstanceRecord(row) : null;
     },
+    findByIdForUpdate: async (id) => {
+      const [row] = await db
+        .select()
+        .from(schema.workflowInstances)
+        .where(eq(schema.workflowInstances.id, id))
+        .for('update');
+      return row ? toInstanceRecord(row) : null;
+    },
     list: async (filters) => {
       const conditions = [];
       if (filters?.status) conditions.push(eq(schema.workflowInstances.status, filters.status));

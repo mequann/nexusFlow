@@ -339,7 +339,7 @@ export class WorkflowEngine {
       const durationMs = finishedAt.getTime() - startedAt.getTime();
 
       await this.uow.runInTransaction(async (repos) => {
-        const freshInstance = await repos.instances.findById(instance.id);
+        const freshInstance = await repos.instances.findByIdForUpdate(instance.id);
         if (!freshInstance || isTerminalInstanceStatus(freshInstance.status)) {
           await repos.jobs.complete(job.id);
           return;
@@ -643,7 +643,7 @@ export class WorkflowEngine {
     job: ExecutionJob,
   ): Promise<void> {
     await this.uow.runInTransaction(async (repos) => {
-      const freshInstance = await repos.instances.findById(instance.id);
+      const freshInstance = await repos.instances.findByIdForUpdate(instance.id);
       if (!freshInstance || isTerminalInstanceStatus(freshInstance.status)) return;
 
       const steps = await repos.steps.findByInstance(instance.id);
@@ -1002,7 +1002,8 @@ export class WorkflowEngine {
   ): Promise<void> {
     const message = err instanceof Error ? err.message : String(err);
     const stack = err instanceof Error ? err.stack ?? null : null;
-    const retryable = err instanceof ExternalServiceError ? err.retryable : false;
+    const isOccConflict = err instanceof ConflictError;
+    const retryable = isOccConflict || (err instanceof ExternalServiceError ? err.retryable : false);
     const nextAttempt = job.attempts + 1;
     const now = new Date();
 

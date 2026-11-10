@@ -295,5 +295,65 @@ describe('Hybrid Camunda BPMN + n8n Workflow Engine (Integration)', () => {
     const failedInst = await uow.repos.instances.findById(instance.id);
     expect(failedInst?.status).toBe('FAILED');
   });
+
+  it('executes unequal-length parallel branches (5 steps vs 9 steps) and converges cleanly at join', async () => {
+    const branchXNodes = Array.from({ length: 5 }, (_, i) => ({
+      id: `x${i + 1}`,
+      name: `Branch X Step ${i + 1}`,
+      type: 'action.transform' as const,
+      config: { mapping: { [`xStep${i + 1}`]: true } },
+    }));
+    const branchYNodes = Array.from({ length: 9 }, (_, i) => ({
+      id: `y${i + 1}`,
+      name: `Branch Y Step ${i + 1}`,
+      type: 'action.transform' as const,
+      config: { mapping: { [`yStep${i + 1}`]: true } },
+    }));
+
+    const edges = [
+      { id: 'e_start', from: 'start', to: 'fork' },
+      { id: 'e_fx', from: 'fork', to: 'x1' },
+      { id: 'e_fy', from: 'fork', to: 'y1' },
+      ...branchXNodes.slice(0, -1).map((n, i) => ({
+        id: `ex_${i}`,
+        from: n.id,
+        to: branchXNodes[i + 1]!.id,
+      })),
+      ...branchYNodes.slice(0, -1).map((n, i) => ({
+        id: `ey_${i}`,
+        from: n.id,
+        to: branchYNodes[i + 1]!.id,
+      })),
+      { id: 'e_xj', from: 'x5', to: 'join' },
+      { id: 'e_yj', from: 'y9', to: 'join' },
+      { id: 'e_end', from: 'join', to: 'end' },
+    ];
+
+    const wf = await workflowService.createWorkflow({
+      key: 'unequal-parallel-5-vs-9',
+      name: 'Unequal Parallel 5 vs 9 Steps',
+      createdBy: null,
+      definition: {
+        nodes: [
+          { id: 'start', name: 'Start', type: 'trigger.manual', config: {} },
+          { id: 'fork', name: 'Fork', type: 'logic.parallel', config: {} },
+          ...branchXNodes,
+          ...branchYNodes,
+          { id: 'join', name: 'Join', type: 'logic.join', config: {} },
+          { id: 'end', name: 'End', type: 'bpmn.end', config: {} },
+        ],
+        edges,
+      },
+    });
+    await workflowService.publishWorkflow(wf.id);
+
+    const inst = await engine.startInstance({ workflowKey: 'unequal-parallel-5-vs-9' });
+    await engine.drainQueue(500);
+
+    const done = await uow.repos.instances.findById(inst.id);
+    expect(done?.status).toBe('COMPLETED');
+    expect(done?.variables.xStep5).toBe(true);
+    expect(done?.variables.yStep9).toBe(true);
+  });
 });
 
