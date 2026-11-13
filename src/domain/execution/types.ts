@@ -7,7 +7,10 @@ export type InstanceStatus =
   | 'COMPENSATED'
   | 'COMPLETED'
   | 'FAILED'
-  | 'CANCELLED';
+  | 'CANCELLED'
+  | 'CONTINUED_AS_NEW';
+
+export type ParentClosePolicy = 'TERMINATE' | 'ABANDON' | 'REQUEST_CANCEL';
 
 export type TokenStatus = 'ACTIVE' | 'WAITING' | 'COMPLETED' | 'FAILED' | 'CANCELLED';
 
@@ -53,6 +56,9 @@ export interface ExternalTask {
   topic: string;
   workerId: string | null;
   lockExpiresAt: Date | null;
+  lastHeartbeatAt?: Date | null;
+  heartbeatTimeoutSeconds?: number | null;
+  progress?: Record<string, unknown> | null;
   status: ExternalTaskStatus;
   variables: Record<string, unknown>;
   resultVariables: Record<string, unknown> | null;
@@ -77,6 +83,9 @@ export interface WorkflowInstance {
   correlationKey: string | null;
   parentInstanceId: string | null;
   parentTokenId: string | null;
+  parentClosePolicy?: ParentClosePolicy;
+  generation?: number;
+  continuedFromInstanceId?: string | null;
   startedBy: string | null;
   occVersion: number;
   startedAt: Date;

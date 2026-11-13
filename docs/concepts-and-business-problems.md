@@ -181,3 +181,18 @@ To prevent lock contention and sequential table scans during high-throughput orc
    - Avoids distributed transaction failures across messaging queues. State changes and outbound events are written to the database atomically in the same ACID commit.
    - Dedicated outbox relay processes ensure guaranteed *at-least-once* delivery to downstream message brokers (Kafka, RabbitMQ, SQS).
 
+---
+
+## 7. Temporal-Grade Resiliency & Operational Primitives
+
+To bridge the gap between traditional BPMN/workflow engines and high-throughput code-first orchestrators like **Temporal**, NexusFlow incorporates five first-class primitives:
+
+| Temporal Capability | NexusFlow Implementation | Business Problem Solved |
+|---|---|---|
+| **Activity Heartbeating** | `POST /api/v1/external-tasks/:id/heartbeat` & `lastHeartbeatAt` | Prevents long-running worker tasks (large file conversions, ETL, bank batch uploads) from prematurely timing out while reporting percent/stage progress without completing the task prematurely. |
+| **Point-in-Time Reset (Time Travel)** | `POST /api/v1/instances/:id/reset` (`resetInstance`) | In production, external third-party outages or bugs often poison instances midway through execution. Instead of abandoning the workflow or manually hacking SQL, operators can rewind the instance back to a previous node with updated variables and resumed tokens. |
+| **ParentClosePolicy** | `bpmn.call_activity` with `TERMINATE`, `ABANDON`, `REQUEST_CANCEL` | Ensures child sub-processes do not become orphaned zombies if a parent workflow is cancelled by a user or an executive override. |
+| **ContinueAsNew** | `POST /api/v1/instances/:id/continue-as-new` (`continueAsNew`) | Prevents unbounded growth of execution history and token states in periodic or infinite polling loops by atomically closing the current generation and starting generation $N+1$ with clean carryover variables. |
+| **Live Synchronous Queries** | `POST /api/v1/instances/:id/query` (`queryInstance`) | Allows external services to synchronously inspect internal workflow variables and evaluate safe sandboxed expressions without writing to disk or firing token state transitions. |
+
+

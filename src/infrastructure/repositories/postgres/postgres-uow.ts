@@ -267,6 +267,13 @@ function buildDrizzleRegistry(db: DrizzleDb): IRepositoryRegistry {
         .for('update');
       return row ? toInstanceRecord(row) : null;
     },
+    findByParentInstance: async (parentInstanceId: string) => {
+      const rows = await db
+        .select()
+        .from(schema.workflowInstances)
+        .where(eq(schema.workflowInstances.parentInstanceId, parentInstanceId));
+      return rows.map(toInstanceRecord);
+    },
     list: async (filters) => {
       const conditions = [];
       if (filters?.tenantId) conditions.push(eq(schema.workflowInstances.tenantId, filters.tenantId));

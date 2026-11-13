@@ -1,4 +1,4 @@
-import { Body, Controller, HttpCode, HttpStatus, Inject, Param, Post } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, HttpStatus, Inject, Param, Post } from '@nestjs/common';
 import {
   ApiBadRequestResponse,
   ApiBearerAuth,
@@ -40,6 +40,12 @@ const FailExternalSchema = z.object({
   workerId: z.string().min(1),
   errorMessage: z.string().min(1),
   retriesRemaining: z.number().int().min(0).optional(),
+});
+
+const HeartbeatSchema = z.object({
+  workerId: z.string().min(1),
+  progress: z.record(z.unknown()).optional(),
+  extendLockMs: z.number().int().min(1000).max(3_600_000).optional(),
 });
 
 @ApiTags('External Service Tasks (Camunda Polyglot Workers)')
@@ -106,6 +112,31 @@ export class ExternalTasksController {
       body.errorMessage,
       body.retriesRemaining,
     );
+  }
+
+  @Post(':id/heartbeat')
+  @HttpCode(HttpStatus.OK)
+  @RequirePermission('task:act')
+  @ApiOperation({ summary: 'Temporal-style Activity Heartbeat: record worker progress and extend lock expiration' })
+  @ApiParam({ name: 'id', description: 'Task UUID' })
+  async heartbeat(
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(HeartbeatSchema)) body: z.infer<typeof HeartbeatSchema>,
+  ) {
+    return this.externalTaskService.recordHeartbeat(
+      id,
+      body.workerId,
+      body.progress,
+      body.extendLockMs,
+    );
+  }
+
+  @Get(':id/progress')
+  @RequirePermission('task:read')
+  @ApiOperation({ summary: 'Inspect live worker heartbeat progress on a long-running activity task' })
+  @ApiParam({ name: 'id', description: 'Task UUID' })
+  async getProgress(@Param('id') id: string) {
+    return this.externalTaskService.getTaskProgress(id);
   }
 }
 

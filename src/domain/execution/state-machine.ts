@@ -11,6 +11,7 @@ const INSTANCE_TRANSITIONS: Record<InstanceStatus, ReadonlySet<InstanceStatus>> 
     'COMPLETED',
     'FAILED',
     'CANCELLED',
+    'CONTINUED_AS_NEW',
   ]),
   WAITING: new Set([
     'RUNNING',
@@ -19,13 +20,15 @@ const INSTANCE_TRANSITIONS: Record<InstanceStatus, ReadonlySet<InstanceStatus>> 
     'COMPENSATING',
     'COMPLETED',
     'CANCELLED',
+    'CONTINUED_AS_NEW',
   ]),
   INCIDENT_OPEN: new Set(['RUNNING', 'COMPENSATING', 'FAILED', 'CANCELLED']),
   COMPENSATING: new Set(['COMPENSATED', 'FAILED']),
-  COMPENSATED: new Set([]),
-  COMPLETED: new Set([]),
-  FAILED: new Set([]),
-  CANCELLED: new Set([]),
+  COMPENSATED: new Set(['RUNNING']), // Can be reset by operator
+  COMPLETED: new Set(['RUNNING']),   // Can be reset by operator
+  FAILED: new Set(['RUNNING']),      // Can be reset by operator
+  CANCELLED: new Set(['RUNNING']),   // Can be reset by operator
+  CONTINUED_AS_NEW: new Set([]),
 };
 
 const TASK_TRANSITIONS: Record<UserTaskStatus, ReadonlySet<UserTaskStatus>> = {
@@ -54,6 +57,7 @@ export function isTerminalInstanceStatus(status: InstanceStatus): boolean {
     status === 'COMPLETED' ||
     status === 'COMPENSATED' ||
     status === 'FAILED' ||
-    status === 'CANCELLED'
+    status === 'CANCELLED' ||
+    status === 'CONTINUED_AS_NEW'
   );
 }

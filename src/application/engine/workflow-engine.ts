@@ -1,7 +1,7 @@
 import crypto from 'node:crypto';
 import { Inject, Injectable } from '@nestjs/common';
 import type { AppConfig } from '../../config/env.js';
-import { ConflictError, ExternalServiceError, NotFoundError } from '../../domain/errors.js';
+import { ConflictError, ExternalServiceError, NotFoundError, ValidationError } from '../../domain/errors.js';
 import {
   assertInstanceTransition,
   isTerminalInstanceStatus,
@@ -9,6 +9,7 @@ import {
 import type {
   ExecutionJob,
   ExecutionToken,
+  InstanceStatus,
   StepExecution,
   WorkflowInstance,
 } from '../../domain/execution/types.js';
@@ -263,6 +264,34 @@ export class WorkflowEngine {
         completedAt: new Date(),
       });
 
+      // Cascade cancel child workflows per Temporal ParentClosePolicy
+      const childInstances = await repos.instances.findByParentInstance(instanceId);
+      for (const child of childInstances) {
+        if (!isTerminalInstanceStatus(child.status)) {
+          const policy = child.parentClosePolicy ?? 'TERMINATE';
+          if (policy === 'TERMINATE' || policy === 'REQUEST_CANCEL') {
+            const childTokens = await repos.tokens.findByInstance(child.id);
+            for (const ct of childTokens) {
+              if (ct.status === 'ACTIVE' || ct.status === 'WAITING') {
+                await repos.tokens.update({ ...ct, status: 'CANCELLED' });
+              }
+            }
+            const childSubs = await repos.subscriptions.findByInstance(child.id);
+            for (const cs of childSubs) {
+              if (cs.status === 'ACTIVE') {
+                await repos.subscriptions.update({ ...cs, status: 'CANCELLED' });
+              }
+            }
+            assertInstanceTransition(child.status, 'CANCELLED');
+            await repos.instances.updateWithOcc({
+              ...child,
+              status: 'CANCELLED',
+              completedAt: new Date(),
+            });
+          }
+        }
+      }
+
       await repos.outbox.append({
         id: crypto.randomUUID(),
         aggregateType: 'WorkflowInstance',
@@ -277,6 +306,298 @@ export class WorkflowEngine {
 
       return updated;
     });
+  }
+
+  /**
+   * Temporal-style Point-in-Time Workflow Reset.
+   * Rewinds execution to a specific node, cancels subsequent tokens/subscriptions,
+   * restores instance status to RUNNING, and resumes execution forward.
+   */
+  async resetInstance(
+    instanceId: string,
+    input: {
+      targetNodeId: string;
+      reason: string;
+      variablesOverride?: Record<string, unknown>;
+    },
+  ): Promise<WorkflowInstance> {
+    return this.uow.runInTransaction(async (repos) => {
+      const instance = await repos.instances.findByIdForUpdate(instanceId);
+      if (!instance) throw new NotFoundError('WorkflowInstance', instanceId);
+
+      const workflow = await repos.workflows.findById(instance.workflowId);
+      if (!workflow) throw new NotFoundError('Workflow', instance.workflowId);
+
+      const targetNode = workflow.definition.nodes.find((n) => n.id === input.targetNodeId);
+      if (!targetNode) {
+        throw new ValidationError(`Target node '${input.targetNodeId}' does not exist in workflow definition`);
+      }
+
+      // 1. Cancel all existing active/waiting tokens
+      const existingTokens = await repos.tokens.findByInstance(instanceId);
+      for (const token of existingTokens) {
+        if (token.status === 'ACTIVE' || token.status === 'WAITING') {
+          await repos.tokens.update({ ...token, status: 'CANCELLED' });
+        }
+      }
+
+      // 2. Cancel all active subscriptions
+      const existingSubs = await repos.subscriptions.findByInstance(instanceId);
+      for (const sub of existingSubs) {
+        if (sub.status === 'ACTIVE') {
+          await repos.subscriptions.update({ ...sub, status: 'CANCELLED' });
+        }
+      }
+
+      // 3. Dismiss any open incidents
+      const openIncidents = await repos.incidents.list({ instanceId, status: 'OPEN' });
+      for (const inc of openIncidents) {
+        await repos.incidents.update({
+          ...inc,
+          status: 'DISMISSED',
+          resolutionNote: `Dismissed due to workflow reset to '${input.targetNodeId}': ${input.reason}`,
+          resolvedAt: new Date(),
+        });
+      }
+
+      // 4. Create new token stationed at target node
+      const now = new Date();
+      const newTokenId = crypto.randomUUID();
+      const newToken: ExecutionToken = {
+        id: newTokenId,
+        instanceId,
+        currentNodeId: input.targetNodeId,
+        parentTokenId: null,
+        joinGroupId: null,
+        status: 'ACTIVE',
+        createdAt: now,
+        updatedAt: now,
+      };
+      await repos.tokens.create(newToken);
+
+      // 5. Enqueue execution job
+      await repos.jobs.enqueue({
+        id: crypto.randomUUID(),
+        instanceId,
+        tokenId: newTokenId,
+        nodeId: input.targetNodeId,
+        jobType: 'EXECUTE_NODE',
+        payload: input.variablesOverride ?? {},
+        status: 'PENDING',
+        attempts: 0,
+        maxAttempts: 3,
+        availableAt: now,
+        lockedBy: null,
+        lockedAt: null,
+        lastError: null,
+        createdAt: now,
+        updatedAt: now,
+      });
+
+      // 6. Update instance variables and status back to RUNNING
+      const updatedVariables = input.variablesOverride
+        ? { ...instance.variables, ...input.variablesOverride }
+        : instance.variables;
+
+      assertInstanceTransition(instance.status, 'RUNNING');
+      const updated = await repos.instances.updateWithOcc({
+        ...instance,
+        status: 'RUNNING',
+        completedAt: null,
+        variables: updatedVariables,
+        updatedAt: now,
+      });
+
+      // 7. Audit outbox event
+      await repos.outbox.append({
+        id: crypto.randomUUID(),
+        aggregateType: 'WorkflowInstance',
+        aggregateId: instanceId,
+        eventType: 'WORKFLOW_INSTANCE_RESET',
+        payload: {
+          instanceId,
+          targetNodeId: input.targetNodeId,
+          reason: input.reason,
+          variablesOverride: input.variablesOverride,
+        },
+        status: 'PENDING',
+        attempts: 0,
+        createdAt: now,
+        publishedAt: null,
+      });
+
+      this.logger.info(`Workflow instance '${instanceId}' reset to node '${input.targetNodeId}': ${input.reason}`);
+      return updated;
+    });
+  }
+
+  /**
+   * Temporal-style ContinueAsNew.
+   * Atomically compacts a long-running, cyclic, or cron instance into a fresh execution generation
+   * with clean history, carrying over accumulated state without unbounded database token bloat.
+   */
+  async continueAsNew(
+    instanceId: string,
+    input?: {
+      carryoverVariables?: Record<string, unknown>;
+      reason?: string;
+    },
+  ): Promise<WorkflowInstance> {
+    return this.uow.runInTransaction(async (repos) => {
+      const current = await repos.instances.findByIdForUpdate(instanceId);
+      if (!current) throw new NotFoundError('WorkflowInstance', instanceId);
+
+      const workflow = await repos.workflows.findById(current.workflowId);
+      if (!workflow) throw new NotFoundError('Workflow', current.workflowId);
+
+      // Cancel remaining active tokens on old instance
+      const tokens = await repos.tokens.findByInstance(instanceId);
+      for (const t of tokens) {
+        if (t.status === 'ACTIVE' || t.status === 'WAITING') {
+          await repos.tokens.update({ ...t, status: 'CANCELLED' });
+        }
+      }
+
+      const now = new Date();
+      assertInstanceTransition(current.status, 'CONTINUED_AS_NEW');
+      await repos.instances.updateWithOcc({
+        ...current,
+        status: 'CONTINUED_AS_NEW',
+        completedAt: now,
+        updatedAt: now,
+      });
+
+      // Start new generation instance
+      const nextGeneration = (current.generation ?? 1) + 1;
+      const newInstanceId = crypto.randomUUID();
+      const newRootTokenId = crypto.randomUUID();
+      const triggerNode = workflow.definition.nodes.find((n) => n.type.startsWith('trigger.')) ?? workflow.definition.nodes[0];
+      if (!triggerNode) {
+        throw new ValidationError('Workflow definition has no executable nodes');
+      }
+
+      const mergedVars = input?.carryoverVariables
+        ? { ...current.variables, ...input.carryoverVariables }
+        : { ...current.variables };
+
+      const newInstance: WorkflowInstance = {
+        id: newInstanceId,
+        tenantId: current.tenantId,
+        workflowId: current.workflowId,
+        workflowKey: current.workflowKey,
+        workflowVersion: current.workflowVersion,
+        status: 'RUNNING',
+        currentStage: current.currentStage,
+        slaStatus: 'ON_TRACK',
+        triggerType: 'continue_as_new',
+        triggerPayload: { continuedFromInstanceId: current.id, generation: nextGeneration },
+        variables: mergedVars,
+        correlationKey: current.correlationKey,
+        parentInstanceId: current.parentInstanceId,
+        parentTokenId: current.parentTokenId,
+        parentClosePolicy: current.parentClosePolicy,
+        generation: nextGeneration,
+        continuedFromInstanceId: current.id,
+        startedBy: current.startedBy,
+        occVersion: 1,
+        startedAt: now,
+        completedAt: null,
+        updatedAt: now,
+      };
+
+      await repos.instances.create(newInstance);
+      await repos.tokens.create({
+        id: newRootTokenId,
+        instanceId: newInstanceId,
+        currentNodeId: triggerNode.id,
+        parentTokenId: null,
+        joinGroupId: null,
+        status: 'ACTIVE',
+        createdAt: now,
+        updatedAt: now,
+      });
+
+      await repos.jobs.enqueue({
+        id: crypto.randomUUID(),
+        instanceId: newInstanceId,
+        tokenId: newRootTokenId,
+        nodeId: triggerNode.id,
+        jobType: 'EXECUTE_NODE',
+        payload: mergedVars,
+        status: 'PENDING',
+        attempts: 0,
+        maxAttempts: 3,
+        availableAt: now,
+        lockedBy: null,
+        lockedAt: null,
+        lastError: null,
+        createdAt: now,
+        updatedAt: now,
+      });
+
+      await repos.outbox.append({
+        id: crypto.randomUUID(),
+        aggregateType: 'WorkflowInstance',
+        aggregateId: instanceId,
+        eventType: 'INSTANCE_CONTINUED_AS_NEW',
+        payload: {
+          previousInstanceId: current.id,
+          newInstanceId,
+          generation: nextGeneration,
+          reason: input?.reason ?? 'Compacted via ContinueAsNew',
+        },
+        status: 'PENDING',
+        attempts: 0,
+        createdAt: now,
+        publishedAt: null,
+      });
+
+      this.logger.info(`Instance '${instanceId}' continued as new generation ${nextGeneration} -> '${newInstanceId}'`);
+      return newInstance;
+    });
+  }
+
+  /**
+   * Temporal-style Synchronous Workflow Query.
+   * Inspects live instance state and computes safe expression queries without mutations or locks.
+   */
+  async queryInstance(
+    instanceId: string,
+    query: {
+      expression?: string;
+      variableKey?: string;
+    },
+  ): Promise<{
+    instanceId: string;
+    status: InstanceStatus;
+    result: unknown;
+    evaluatedAt: string;
+  }> {
+    const instance = await this.uow.repos.instances.findById(instanceId);
+    if (!instance) throw new NotFoundError('WorkflowInstance', instanceId);
+
+    let result: unknown = instance.variables;
+
+    if (query.variableKey) {
+      result = instance.variables[query.variableKey];
+    } else if (query.expression) {
+      const expr =
+        query.expression.trim().startsWith('{{') && query.expression.trim().endsWith('}}')
+          ? query.expression.trim().slice(2, -2).trim()
+          : query.expression.trim();
+      result = evaluateExpression(expr, {
+        $vars: instance.variables,
+        $trigger: instance.triggerPayload,
+        $steps: {},
+      });
+    }
+
+    return {
+      instanceId: instance.id,
+      status: instance.status,
+      result,
+      evaluatedAt: new Date().toISOString(),
+    };
   }
 
   private async buildScope(

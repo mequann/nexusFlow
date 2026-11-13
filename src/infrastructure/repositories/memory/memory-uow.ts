@@ -202,6 +202,11 @@ export class MemoryUnitOfWork implements IUnitOfWork {
         const found = this.instancesMap.get(id);
         return found ? clone(found) : null;
       },
+      findByParentInstance: async (parentInstanceId: string) => {
+        return [...this.instancesMap.values()]
+          .filter((i) => i.parentInstanceId === parentInstanceId)
+          .map(clone);
+      },
       list: async (filters) => {
         const list = [...this.instancesMap.values()]
           .filter((i) => {

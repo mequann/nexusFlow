@@ -41,6 +41,22 @@ const MoveTokenSchema = z.object({
   reason: z.string().max(500).optional(),
 });
 
+const ResetInstanceSchema = z.object({
+  targetNodeId: z.string().min(1),
+  reason: z.string().min(1),
+  variablesOverride: z.record(z.unknown()).optional(),
+});
+
+const ContinueAsNewSchema = z.object({
+  carryoverVariables: z.record(z.unknown()).optional(),
+  reason: z.string().optional(),
+});
+
+const QueryInstanceSchema = z.object({
+  expression: z.string().optional(),
+  variableKey: z.string().optional(),
+});
+
 @ApiTags('Instances')
 @ApiBearerAuth()
 @Controller('api/v1/instances')
@@ -180,5 +196,47 @@ export class InstancesController {
     @Body(new ZodValidationPipe(MoveTokenSchema)) body: MoveTokenDto,
   ) {
     return this.engine.moveTokenToNode(id, body.tokenId, body.targetNodeId, body.reason);
+  }
+
+  @Post(':id/reset')
+  @HttpCode(HttpStatus.OK)
+  @RequirePermission('instance:cancel')
+  @ApiOperation({
+    summary: 'Temporal-style Point-in-Time Reset: rewind workflow execution to a specific node and resume forward',
+  })
+  @ApiParam({ name: 'id', description: 'Instance UUID' })
+  async reset(
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(ResetInstanceSchema)) body: z.infer<typeof ResetInstanceSchema>,
+  ) {
+    return this.engine.resetInstance(id, body);
+  }
+
+  @Post(':id/continue-as-new')
+  @HttpCode(HttpStatus.CREATED)
+  @RequirePermission('instance:cancel')
+  @ApiOperation({
+    summary: 'Temporal-style ContinueAsNew: compact history and start a fresh execution generation carrying over state',
+  })
+  @ApiParam({ name: 'id', description: 'Instance UUID' })
+  async continueAsNew(
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(ContinueAsNewSchema)) body: z.infer<typeof ContinueAsNewSchema>,
+  ) {
+    return this.engine.continueAsNew(id, body);
+  }
+
+  @Post(':id/query')
+  @HttpCode(HttpStatus.OK)
+  @RequirePermission('instance:read')
+  @ApiOperation({
+    summary: 'Temporal-style Synchronous Live Query: inspect running workflow variables and evaluate safe expressions without mutating state',
+  })
+  @ApiParam({ name: 'id', description: 'Instance UUID' })
+  async query(
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(QueryInstanceSchema)) body: z.infer<typeof QueryInstanceSchema>,
+  ) {
+    return this.engine.queryInstance(id, body);
   }
 }

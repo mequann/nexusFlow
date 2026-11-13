@@ -136,5 +136,70 @@ export class ExternalTaskService {
       return failed;
     });
   }
+
+  /**
+   * Temporal-style activity heartbeating.
+   * Allows long-running external tasks to report incremental progress and maintain worker liveness.
+   */
+  async recordHeartbeat(
+    taskId: string,
+    workerId: string,
+    progress?: Record<string, unknown>,
+    extendLockMs = 30_000,
+  ): Promise<ExternalTask> {
+    return this.uow.runInTransaction(async (repos) => {
+      const task = await repos.externalTasks.findById(taskId);
+      if (!task) throw new NotFoundError('ExternalTask', taskId);
+      if (task.status !== 'LOCKED') {
+        throw new ConflictError(`ExternalTask '${taskId}' cannot heartbeat in status '${task.status}'`);
+      }
+      if (task.workerId && task.workerId !== workerId) {
+        throw new ConflictError(`ExternalTask '${taskId}' is locked by worker '${task.workerId}', not '${workerId}'`);
+      }
+
+      const now = new Date();
+      const newLockExpiresAt = new Date(now.getTime() + extendLockMs);
+
+      const updated = await repos.externalTasks.update({
+        ...task,
+        lastHeartbeatAt: now,
+        lockExpiresAt: newLockExpiresAt,
+        progress: progress ? { ...(task.progress ?? {}), ...progress } : task.progress,
+        updatedAt: now,
+      });
+
+      await repos.outbox.append({
+        id: crypto.randomUUID(),
+        aggregateType: 'ExternalTask',
+        aggregateId: task.id,
+        eventType: 'EXTERNAL_TASK_HEARTBEAT',
+        payload: { taskId: task.id, workerId, progress, lockExpiresAt: newLockExpiresAt },
+        status: 'PENDING',
+        attempts: 0,
+        createdAt: now,
+        publishedAt: null,
+      });
+
+      return updated;
+    });
+  }
+
+  async getTaskProgress(taskId: string): Promise<{
+    taskId: string;
+    status: string;
+    progress: Record<string, unknown> | null;
+    lastHeartbeatAt: Date | null;
+    lockExpiresAt: Date | null;
+  }> {
+    const task = await this.uow.repos.externalTasks.findById(taskId);
+    if (!task) throw new NotFoundError('ExternalTask', taskId);
+    return {
+      taskId: task.id,
+      status: task.status,
+      progress: task.progress ?? null,
+      lastHeartbeatAt: task.lastHeartbeatAt ?? null,
+      lockExpiresAt: task.lockExpiresAt,
+    };
+  }
 }
 
