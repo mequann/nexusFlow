@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   Activity,
   CheckCircle2,
@@ -9,11 +9,12 @@ import {
   XCircle,
 } from 'lucide-react';
 import { api } from '../api';
-import type { ExternalTask, WorkflowInstance } from '../types';
+import type { ExternalTask, WorkflowInstance, WorkflowRecord } from '../types';
 
 interface TemporalControlPanelProps {
   instances: WorkflowInstance[];
   externalTasks: ExternalTask[];
+  workflows?: WorkflowRecord[];
   onActionComplete: () => void;
   lang: 'en' | 'am';
 }
@@ -21,15 +22,31 @@ interface TemporalControlPanelProps {
 export function TemporalControlPanel({
   instances,
   externalTasks,
+  workflows = [],
   onActionComplete,
   lang,
 }: TemporalControlPanelProps) {
   // Time Travel Reset state
   const [resetInstanceId, setResetInstanceId] = useState('');
-  const [resetTargetNode, setResetTargetNode] = useState('REQUEST_SUBMISSION');
+  const [resetTargetNode, setResetTargetNode] = useState('');
   const [resetReason, setResetReason] = useState('Operator rewound execution to apply retroactive policy update');
   const [resetVarsJson, setResetVarsJson] = useState('{"discountApproved": true, "auditOverride": true}');
   const [resetLoading, setResetLoading] = useState(false);
+
+  // Available nodes for the selected reset instance
+  const selectedResetInstance = instances.find((i) => i.id === resetInstanceId);
+  const matchingWorkflow = workflows.find((w) => w.key === selectedResetInstance?.workflowKey);
+  const availableNodes = matchingWorkflow?.definition?.nodes ?? [];
+
+  useEffect(() => {
+    if (availableNodes.length > 0) {
+      // Pick first non-trigger node or the first available step
+      const preferred = availableNodes.find((n) => !n.type.startsWith('trigger.')) ?? availableNodes[0];
+      setResetTargetNode(preferred.id);
+    } else {
+      setResetTargetNode('');
+    }
+  }, [resetInstanceId, matchingWorkflow]);
 
   // Continue As New state
   const [canInstanceId, setCanInstanceId] = useState('');
@@ -187,14 +204,29 @@ export function TemporalControlPanel({
 
             <div className="form-grid-2">
               <div>
-                <label className="input-label">Target Node ID to Rewind</label>
-                <input
-                  className="input"
-                  value={resetTargetNode}
-                  onChange={(e) => setResetTargetNode(e.target.value)}
-                  placeholder="e.g. REQUEST_SUBMISSION or step1"
-                  required
-                />
+                <label className="input-label">Target Node to Rewind (Temporal Reset)</label>
+                {availableNodes.length > 0 ? (
+                  <select
+                    className="input"
+                    value={resetTargetNode}
+                    onChange={(e) => setResetTargetNode(e.target.value)}
+                    required
+                  >
+                    {availableNodes.map((n) => (
+                      <option key={n.id} value={n.id}>
+                        {n.name} (ID: {n.id}, Type: {n.type})
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <input
+                    className="input"
+                    value={resetTargetNode}
+                    onChange={(e) => setResetTargetNode(e.target.value)}
+                    placeholder={resetInstanceId ? 'Type node ID...' : 'Select an instance above first'}
+                    required
+                  />
+                )}
               </div>
               <div>
                 <label className="input-label">Reason for Reset</label>

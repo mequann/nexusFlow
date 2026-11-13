@@ -18,3 +18,4 @@ CREATE TABLE IF NOT EXISTS audit_logs (
 CREATE INDEX IF NOT EXISTS idx_audit_logs_tenant_ts ON audit_logs (tenant_id, timestamp DESC);
 CREATE INDEX IF NOT EXISTS idx_audit_logs_action ON audit_logs (action);
 CREATE INDEX IF NOT EXISTS idx_audit_logs_resource ON audit_logs (resource_type, resource_id);
+

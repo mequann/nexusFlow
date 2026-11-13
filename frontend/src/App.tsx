@@ -1643,6 +1643,7 @@ export default function App() {
           <TemporalControlPanel
             instances={instances}
             externalTasks={externalTasks}
+            workflows={workflows}
             onActionComplete={() => void refreshAll()}
             lang={lang}
           />
