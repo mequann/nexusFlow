@@ -14,6 +14,7 @@ async function main(): Promise<void> {
     host: config.HOST,
     port: config.PORT,
     storageDriver: config.STORAGE_DRIVER,
+    studioUI: `http://localhost:${config.PORT}/`,
     swaggerDocs: `http://localhost:${config.PORT}/docs`,
   });
 

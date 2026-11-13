@@ -23,6 +23,7 @@ import { WorkflowService } from './application/services/workflow-service.js';
 import { TenantWorkflowImporterService } from './application/services/tenant-workflow-importer.service.js';
 import { CorrespondenceService } from './application/services/correspondence-service.js';
 import { TelegramBotService } from './application/services/telegram-bot-service.js';
+import { EventDispatcherService } from './application/services/event-dispatcher.service.js';
 import {
   APP_CONFIG,
   APP_LOGGER,
@@ -163,6 +164,7 @@ export class NexusFlowModule implements OnModuleInit, OnModuleDestroy {
         MessageService,
         CorrespondenceService,
         TelegramBotService,
+        EventDispatcherService,
         JobWorker,
         SchedulerWorker,
         IdempotencyInterceptor,
@@ -193,6 +195,7 @@ export class NexusFlowModule implements OnModuleInit, OnModuleDestroy {
         MessageService,
         CorrespondenceService,
         TelegramBotService,
+        EventDispatcherService,
         JobWorker,
         SchedulerWorker,
       ],

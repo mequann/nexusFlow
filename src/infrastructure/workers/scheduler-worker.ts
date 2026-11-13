@@ -3,6 +3,7 @@ import { Inject, Injectable } from '@nestjs/common';
 import cronParser from 'cron-parser';
 import { WorkflowEngine } from '../../application/engine/workflow-engine.js';
 import { TaskService } from '../../application/services/task-service.js';
+import { EventDispatcherService } from '../../application/services/event-dispatcher.service.js';
 import { APP_CONFIG, APP_LOGGER, UNIT_OF_WORK } from '../../application/tokens.js';
 import type { AppConfig } from '../../config/env.js';
 import type { IUnitOfWork } from '../../domain/ports/repositories.js';
@@ -18,6 +19,7 @@ export class SchedulerWorker {
     @Inject(UNIT_OF_WORK) private readonly uow: IUnitOfWork,
     @Inject(WorkflowEngine) private readonly engine: WorkflowEngine,
     @Inject(TaskService) private readonly taskService: TaskService,
+    @Inject(EventDispatcherService) private readonly eventDispatcher: EventDispatcherService,
     @Inject(APP_CONFIG) private readonly config: AppConfig,
     @Inject(APP_LOGGER) private readonly logger: ILogger,
   ) {}
@@ -142,6 +144,7 @@ export class SchedulerWorker {
     let relayed = 0;
     for (const evt of pending) {
       try {
+        await this.eventDispatcher.dispatch(evt);
         this.logger.debug('Outbox event relayed', {
           eventId: evt.id,
           eventType: evt.eventType,
@@ -150,7 +153,11 @@ export class SchedulerWorker {
         });
         await this.uow.repos.outbox.markPublished(evt.id, new Date());
         relayed += 1;
-      } catch {
+      } catch (err) {
+        this.logger.error('Failed to dispatch outbox event', {
+          eventId: evt.id,
+          error: err instanceof Error ? err.message : String(err),
+        });
         await this.uow.repos.outbox.markFailed(evt.id);
       }
     }

@@ -52,6 +52,9 @@ const EnvSchema = z.object({
     .transform((v) => v === 'true')
     .default('false'),
 
+  OUTBOUND_WEBHOOK_URL: z.string().url().optional(),
+  OUTBOUND_WEBHOOK_SECRET: z.string().optional(),
+
   BOOTSTRAP_ADMIN_EMAIL: z.string().email().default('admin@nexusflow.local'),
   BOOTSTRAP_ADMIN_PASSWORD: z.string().min(8).default('AdminChangeMe123!'),
 });
