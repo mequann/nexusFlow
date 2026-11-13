@@ -6,6 +6,7 @@ import type {
   ExecutionToken,
   ExternalTask,
   Incident,
+  NotificationRecord,
   OutboxEvent,
   StepExecution,
   UserTask,
@@ -19,6 +20,7 @@ import type {
   IIncidentRepository,
   IInstanceRepository,
   IJobRepository,
+  INotificationRepository,
   IOutboxRepository,
   IRepositoryRegistry,
   IStepRepository,
@@ -43,6 +45,7 @@ export class MemoryUnitOfWork implements IUnitOfWork {
   private readonly tokensMap = new Map<string, ExecutionToken>();
   private readonly stepsMap = new Map<string, StepExecution>();
   private readonly userTasksMap = new Map<string, UserTask>();
+  private readonly notificationsMap = new Map<string, NotificationRecord>();
   private readonly commentsMap = new Map<string, CaseComment>();
   private readonly externalTasksMap = new Map<string, ExternalTask>();
   private readonly subscriptionsMap = new Map<string, EventSubscription>();
@@ -166,6 +169,7 @@ export class MemoryUnitOfWork implements IUnitOfWork {
           .filter((i) => {
             if (filters?.status && i.status !== filters.status) return false;
             if (filters?.workflowKey && i.workflowKey !== filters.workflowKey) return false;
+            if (filters?.startedBy && i.startedBy !== filters.startedBy) return false;
             return true;
           })
           .sort((a, b) => b.startedAt.getTime() - a.startedAt.getTime());
@@ -264,6 +268,18 @@ export class MemoryUnitOfWork implements IUnitOfWork {
             if (filters?.status && t.status !== filters.status) return false;
             if (filters?.assignee && t.assignee !== filters.assignee) return false;
             if (filters?.candidateGroup && t.candidateGroup !== filters.candidateGroup) return false;
+            if (
+              filters?.candidateGroups &&
+              (!t.candidateGroup || !filters.candidateGroups.includes(t.candidateGroup))
+            ) {
+              return false;
+            }
+            if (filters?.userOrGroups) {
+              const matchesUser = t.assignee === filters.userOrGroups.userId;
+              const matchesGroup =
+                t.candidateGroup && filters.userOrGroups.groups.includes(t.candidateGroup);
+              if (!matchesUser && !matchesGroup) return false;
+            }
             if (filters?.instanceId && t.instanceId !== filters.instanceId) return false;
             return true;
           })
@@ -289,6 +305,51 @@ export class MemoryUnitOfWork implements IUnitOfWork {
         saved.updatedAt = new Date();
         this.userTasksMap.set(saved.id, saved);
         return clone(saved);
+      },
+    };
+
+    const notifications: INotificationRepository = {
+      create: async (notification) => {
+        const saved = clone(notification);
+        this.notificationsMap.set(saved.id, saved);
+        return clone(saved);
+      },
+      findById: async (id) => {
+        const found = this.notificationsMap.get(id);
+        return found ? clone(found) : null;
+      },
+      list: async (filters) => {
+        return [...this.notificationsMap.values()]
+          .filter((n) => {
+            if (filters.read !== undefined && n.read !== filters.read) return false;
+            if (filters.recipientId && n.recipientId !== filters.recipientId) return false;
+            if (filters.recipientGroup && n.recipientGroup !== filters.recipientGroup) return false;
+            if (filters.recipientOrGroup) {
+              const matchesUser = n.recipientId === filters.recipientOrGroup.recipientId;
+              const matchesGroup =
+                n.recipientGroup && filters.recipientOrGroup.groups.includes(n.recipientGroup);
+              if (!matchesUser && !matchesGroup) return false;
+            }
+            return true;
+          })
+          .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+          .slice(0, filters.limit ?? 50)
+          .map(clone);
+      },
+      markAsRead: async (id, readAt) => {
+        const n = this.notificationsMap.get(id);
+        if (n) {
+          n.read = true;
+          n.readAt = readAt;
+        }
+      },
+      markAllAsRead: async (recipientId, readAt) => {
+        for (const n of this.notificationsMap.values()) {
+          if (n.recipientId === recipientId && !n.read) {
+            n.read = true;
+            n.readAt = readAt;
+          }
+        }
       },
     };
 
@@ -556,6 +617,15 @@ export class MemoryUnitOfWork implements IUnitOfWork {
         }
         return null;
       },
+      list: async (filters) => {
+        return [...this.usersMap.values()]
+          .filter((u) => {
+            if (filters?.department && u.department !== filters.department) return false;
+            if (filters?.isActive !== undefined && u.isActive !== filters.isActive) return false;
+            return true;
+          })
+          .map(clone);
+      },
       count: async () => this.usersMap.size,
       createApiKey: async (apiKey) => {
         const saved = clone(apiKey);
@@ -571,6 +641,13 @@ export class MemoryUnitOfWork implements IUnitOfWork {
       touchApiKey: async (id, usedAt) => {
         const k = this.apiKeysMap.get(id);
         if (k) k.lastUsedAt = usedAt;
+      },
+      update: async (user) => {
+        if (!this.usersMap.has(user.id)) throw new NotFoundError('User', user.id);
+        const saved = clone(user);
+        saved.updatedAt = new Date();
+        this.usersMap.set(saved.id, saved);
+        return clone(saved);
       },
     };
 
@@ -591,6 +668,7 @@ export class MemoryUnitOfWork implements IUnitOfWork {
       tokens,
       steps,
       userTasks,
+      notifications,
       caseComments,
       externalTasks,
       subscriptions,

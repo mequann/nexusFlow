@@ -15,10 +15,11 @@ import {
 import { z } from 'zod';
 import { WorkflowEngine } from '../../../application/engine/workflow-engine.js';
 import { UNIT_OF_WORK } from '../../../application/tokens.js';
-import { NotFoundError } from '../../../domain/errors.js';
+import { ForbiddenError, NotFoundError } from '../../../domain/errors.js';
 import type { InstanceStatus } from '../../../domain/execution/types.js';
 import type { IUnitOfWork } from '../../../domain/ports/repositories.js';
-import { RequirePermission } from '../decorators/auth.decorator.js';
+import type { AuthPrincipal } from '../../../domain/security/types.js';
+import { CurrentPrincipal, RequirePermission } from '../decorators/auth.decorator.js';
 import {
   ErrorResponseDto,
   ExecutionTokenResponseDto,
@@ -72,13 +73,16 @@ export class InstancesController {
   @ApiOkResponse({ description: 'List of workflow instances', type: InstanceListResponseDto })
   @ApiUnauthorizedResponse({ description: 'Unauthorized', type: ErrorResponseDto })
   async list(
+    @CurrentPrincipal() principal: AuthPrincipal,
     @Query('status') status?: InstanceStatus,
     @Query('workflowKey') workflowKey?: string,
     @Query('limit') limit?: string,
   ) {
+    const isGlobalAdmin = principal.role === 'ADMIN';
     const items = await this.uow.repos.instances.list({
       status,
       workflowKey,
+      startedBy: isGlobalAdmin ? undefined : principal.userId,
       limit: limit ? Number(limit) : 100,
     });
     return { items };
@@ -90,9 +94,12 @@ export class InstancesController {
   @ApiParam({ name: 'id', example: 'b64d7c30-2d2a-4f7c-9c30-cf2310fb5a5f' })
   @ApiOkResponse({ description: 'Workflow instance details', type: InstanceResponseDto })
   @ApiNotFoundResponse({ description: 'Instance not found', type: ErrorResponseDto })
-  async getById(@Param('id') id: string) {
+  async getById(@Param('id') id: string, @CurrentPrincipal() principal: AuthPrincipal) {
     const instance = await this.uow.repos.instances.findById(id);
     if (!instance) throw new NotFoundError('WorkflowInstance', id);
+    if (principal.role !== 'ADMIN' && instance.startedBy && instance.startedBy !== principal.userId) {
+      throw new ForbiddenError('You do not have access to view this workflow instance');
+    }
     return instance;
   }
 
@@ -104,9 +111,12 @@ export class InstancesController {
   @ApiParam({ name: 'id', example: 'b64d7c30-2d2a-4f7c-9c30-cf2310fb5a5f' })
   @ApiOkResponse({ description: 'Full instance execution trace', type: InstanceTraceResponseDto })
   @ApiNotFoundResponse({ description: 'Instance not found', type: ErrorResponseDto })
-  async getTrace(@Param('id') id: string) {
+  async getTrace(@Param('id') id: string, @CurrentPrincipal() principal: AuthPrincipal) {
     const instance = await this.uow.repos.instances.findById(id);
     if (!instance) throw new NotFoundError('WorkflowInstance', id);
+    if (principal.role !== 'ADMIN' && instance.startedBy && instance.startedBy !== principal.userId) {
+      throw new ForbiddenError('You do not have access to view this workflow instance trace');
+    }
 
     const [tokens, steps, tasks, subscriptions, incidents] = await Promise.all([
       this.uow.repos.tokens.findByInstance(id),

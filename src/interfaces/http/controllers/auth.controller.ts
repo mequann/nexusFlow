@@ -13,6 +13,7 @@ import {
 } from '@nestjs/swagger';
 import { z } from 'zod';
 import { AuthService } from '../../../application/services/auth-service.js';
+import { UserSyncService } from '../../../application/services/user-sync-service.js';
 import type { AuthPrincipal } from '../../../domain/security/types.js';
 import { CurrentPrincipal, Public, RequirePermission } from '../decorators/auth.decorator.js';
 import {
@@ -45,10 +46,26 @@ const CreateApiKeySchema = z.object({
   expiresInDays: z.number().int().min(1).max(365).optional(),
 });
 
+const ImportUsersSchema = z.object({
+  users: z.array(
+    z.object({
+      email: z.string().email(),
+      name: z.string().min(1),
+      role: z.enum(['ADMIN', 'OPERATOR', 'BUILDER', 'VIEWER']).optional(),
+      department: z.string().optional(),
+      managerEmail: z.string().email().optional(),
+      isActive: z.boolean().optional(),
+    }),
+  ),
+});
+
 @ApiTags('Authentication')
 @Controller('api/v1/auth')
 export class AuthController {
-  constructor(@Inject(AuthService) private readonly authService: AuthService) {}
+  constructor(
+    @Inject(AuthService) private readonly authService: AuthService,
+    @Inject(UserSyncService) private readonly userSyncService: UserSyncService,
+  ) {}
 
   @Public()
   @Post('login')
@@ -98,6 +115,17 @@ export class AuthController {
       role: validated.role,
       expiresAt,
     });
+  }
+
+  @Post('import-users')
+  @ApiBearerAuth()
+  @RequirePermission('admin:users')
+  @ApiOperation({ summary: 'Import / batch-synchronize users from HRIS or external directory (ADMIN only)' })
+  @ApiOkResponse({ description: 'User sync summary' })
+  @ApiUnauthorizedResponse({ description: 'Unauthorized', type: ErrorResponseDto })
+  @ApiForbiddenResponse({ description: 'Insufficient role permissions', type: ErrorResponseDto })
+  async importUsers(@Body(new ZodValidationPipe(ImportUsersSchema)) body: z.infer<typeof ImportUsersSchema>) {
+    return this.userSyncService.syncUsers(body.users);
   }
 
   @Get('me')

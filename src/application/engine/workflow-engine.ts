@@ -392,11 +392,34 @@ export class WorkflowEngine {
             aggregateType: 'UserTask',
             aggregateId: taskId,
             eventType: 'USER_TASK_CREATED',
-            payload: { taskId, instanceId: instance.id, nodeId: node.id },
+            payload: {
+              taskId,
+              instanceId: instance.id,
+              nodeId: node.id,
+              assignee: outcome.taskConfig.assignee,
+              candidateGroup: outcome.taskConfig.candidateGroup,
+              title: outcome.taskConfig.title,
+            },
             status: 'PENDING',
             attempts: 0,
             createdAt: finishedAt,
             publishedAt: null,
+          });
+
+          // Create in-app notification directly for the target actor/group
+          const targetRecipient = outcome.taskConfig.assignee || 'unassigned';
+          await repos.notifications.create({
+            id: crypto.randomUUID(),
+            recipientId: targetRecipient,
+            recipientGroup: outcome.taskConfig.candidateGroup ?? null,
+            title: `New Task: ${outcome.taskConfig.title}`,
+            message: outcome.taskConfig.description || `Task awaiting action on step '${node.name}'`,
+            type: 'TASK_ASSIGNED',
+            taskId,
+            instanceId: instance.id,
+            read: false,
+            createdAt: finishedAt,
+            readAt: null,
           });
           await repos.jobs.complete(job.id);
           this.metrics.recordStepExecution(node.type, 'WAITING', durationMs);

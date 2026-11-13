@@ -22,6 +22,7 @@ import type {
   ExecutionToken,
   ExternalTask,
   Incident,
+  NotificationRecord,
   OutboxEvent,
   StepExecution,
   UserTask,
@@ -35,6 +36,7 @@ import type {
   IIncidentRepository,
   IInstanceRepository,
   IJobRepository,
+  INotificationRepository,
   IOutboxRepository,
   IRepositoryRegistry,
   IStepRepository,
@@ -218,6 +220,9 @@ function buildDrizzleRegistry(db: DrizzleDb): IRepositoryRegistry {
       if (filters?.status) conditions.push(eq(schema.workflowInstances.status, filters.status));
       if (filters?.workflowKey) {
         conditions.push(eq(schema.workflowInstances.workflowKey, filters.workflowKey));
+      }
+      if (filters?.startedBy) {
+        conditions.push(eq(schema.workflowInstances.startedBy, filters.startedBy));
       }
       const rows = await db
         .select()
@@ -412,6 +417,16 @@ function buildDrizzleRegistry(db: DrizzleDb): IRepositoryRegistry {
       if (filters?.candidateGroup) {
         conditions.push(eq(schema.userTasks.candidateGroup, filters.candidateGroup));
       }
+      if (filters?.candidateGroups && filters.candidateGroups.length > 0) {
+        conditions.push(inArray(schema.userTasks.candidateGroup, filters.candidateGroups));
+      }
+      if (filters?.userOrGroups) {
+        const userOrGroupConds = [eq(schema.userTasks.assignee, filters.userOrGroups.userId)];
+        if (filters.userOrGroups.groups.length > 0) {
+          userOrGroupConds.push(inArray(schema.userTasks.candidateGroup, filters.userOrGroups.groups));
+        }
+        conditions.push(or(...userOrGroupConds)!);
+      }
       if (filters?.instanceId) conditions.push(eq(schema.userTasks.instanceId, filters.instanceId));
       const rows = await db
         .select()
@@ -455,6 +470,78 @@ function buildDrizzleRegistry(db: DrizzleDb): IRepositoryRegistry {
         .returning();
       if (!updated) throw new NotFoundError('UserTask', t.id);
       return toTaskRecord(updated);
+    },
+  };
+
+  const notifications: INotificationRepository = {
+    create: async (n) => {
+      const [row] = await db
+        .insert(schema.notifications)
+        .values({
+          id: n.id,
+          recipientId: n.recipientId,
+          recipientGroup: n.recipientGroup,
+          title: n.title,
+          message: n.message,
+          type: n.type,
+          taskId: n.taskId,
+          instanceId: n.instanceId,
+          read: n.read,
+          createdAt: n.createdAt,
+          readAt: n.readAt,
+        })
+        .returning();
+      return row as NotificationRecord;
+    },
+    findById: async (id) => {
+      const [row] = await db
+        .select()
+        .from(schema.notifications)
+        .where(eq(schema.notifications.id, id));
+      return (row as NotificationRecord) ?? null;
+    },
+    list: async (filters) => {
+      const conditions = [];
+      if (filters.read !== undefined) {
+        conditions.push(eq(schema.notifications.read, filters.read));
+      }
+      if (filters.recipientId) {
+        conditions.push(eq(schema.notifications.recipientId, filters.recipientId));
+      }
+      if (filters.recipientGroup) {
+        conditions.push(eq(schema.notifications.recipientGroup, filters.recipientGroup));
+      }
+      if (filters.recipientOrGroup) {
+        const conds = [eq(schema.notifications.recipientId, filters.recipientOrGroup.recipientId)];
+        if (filters.recipientOrGroup.groups.length > 0) {
+          conds.push(inArray(schema.notifications.recipientGroup, filters.recipientOrGroup.groups));
+        }
+        conditions.push(or(...conds)!);
+      }
+      const rows = await db
+        .select()
+        .from(schema.notifications)
+        .where(conditions.length > 0 ? and(...conditions) : undefined)
+        .orderBy(desc(schema.notifications.createdAt))
+        .limit(filters.limit ?? 50);
+      return rows as NotificationRecord[];
+    },
+    markAsRead: async (id, readAt) => {
+      await db
+        .update(schema.notifications)
+        .set({ read: true, readAt })
+        .where(eq(schema.notifications.id, id));
+    },
+    markAllAsRead: async (recipientId, readAt) => {
+      await db
+        .update(schema.notifications)
+        .set({ read: true, readAt })
+        .where(
+          and(
+            eq(schema.notifications.recipientId, recipientId),
+            eq(schema.notifications.read, false),
+          ),
+        );
     },
   };
 
@@ -933,6 +1020,17 @@ function buildDrizzleRegistry(db: DrizzleDb): IRepositoryRegistry {
         .where(sql`LOWER(${schema.users.email}) = LOWER(${email})`);
       return row ? { ...row, role: row.role as Role } : null;
     },
+    list: async (filters) => {
+      const conditions = [];
+      if (filters?.department) conditions.push(eq(schema.users.department, filters.department));
+      if (filters?.isActive !== undefined) conditions.push(eq(schema.users.isActive, filters.isActive));
+      const rows = await db
+        .select()
+        .from(schema.users)
+        .where(conditions.length > 0 ? and(...conditions) : undefined)
+        .orderBy(schema.users.name);
+      return rows.map((r) => ({ ...r, role: r.role as Role }));
+    },
     count: async () => {
       const [row] = await db.select({ cnt: drizzleCount() }).from(schema.users);
       return Number(row?.cnt ?? 0);
@@ -963,6 +1061,24 @@ function buildDrizzleRegistry(db: DrizzleDb): IRepositoryRegistry {
     },
     touchApiKey: async (id, usedAt) => {
       await db.update(schema.apiKeys).set({ lastUsedAt: usedAt }).where(eq(schema.apiKeys.id, id));
+    },
+    update: async (user) => {
+      const [row] = await db
+        .update(schema.users)
+        .set({
+          name: user.name,
+          role: user.role,
+          isActive: user.isActive,
+          department: user.department,
+          managerId: user.managerId,
+          outOfOffice: user.outOfOffice,
+          delegateId: user.delegateId,
+          updatedAt: new Date(),
+        })
+        .where(eq(schema.users.id, user.id))
+        .returning();
+      if (!row) throw new NotFoundError('User', user.id);
+      return { ...row, role: row.role as Role };
     },
   };
 
@@ -1002,6 +1118,7 @@ function buildDrizzleRegistry(db: DrizzleDb): IRepositoryRegistry {
     tokens,
     steps,
     userTasks,
+    notifications,
     caseComments,
     externalTasks,
     subscriptions,

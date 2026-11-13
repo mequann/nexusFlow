@@ -70,6 +70,10 @@ export interface UserRecord {
   passwordHash: string;
   role: Role;
   isActive: boolean;
+  department?: string | null;
+  managerId?: string | null;
+  outOfOffice?: boolean;
+  delegateId?: string | null;
   createdAt: Date;
   updatedAt: Date;
 }

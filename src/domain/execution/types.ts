@@ -208,3 +208,25 @@ export interface OutboxEvent {
   createdAt: Date;
   publishedAt: Date | null;
 }
+
+export type NotificationType =
+  | 'TASK_ASSIGNED'
+  | 'TASK_ESCALATED'
+  | 'TASK_DELEGATED'
+  | 'WORKFLOW_FAILED'
+  | 'INFO';
+
+export interface NotificationRecord {
+  id: string;
+  recipientId: string;
+  recipientGroup: string | null;
+  title: string;
+  message: string;
+  type: NotificationType;
+  taskId: string | null;
+  instanceId: string | null;
+  read: boolean;
+  createdAt: Date;
+  readAt: Date | null;
+}
+

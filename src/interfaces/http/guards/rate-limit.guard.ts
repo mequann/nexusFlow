@@ -1,19 +1,16 @@
-import { type CanActivate, type ExecutionContext, Injectable } from '@nestjs/common';
+import { type CanActivate, type ExecutionContext, Inject, Injectable } from '@nestjs/common';
 import type { Request, Response } from 'express';
 import { DomainError } from '../../../domain/errors.js';
-
-interface Bucket {
-  count: number;
-  resetAt: number;
-}
+import { CacheService } from '../../../infrastructure/resilience/cache-service.js';
 
 @Injectable()
 export class RateLimitGuard implements CanActivate {
-  private readonly buckets = new Map<string, Bucket>();
-  private readonly windowMs = 60_000;
+  private readonly windowSeconds = 60;
   private readonly maxRequests = 300;
 
-  canActivate(context: ExecutionContext): boolean {
+  constructor(@Inject(CacheService) private readonly cache: CacheService) {}
+
+  async canActivate(context: ExecutionContext): Promise<boolean> {
     const req = context.switchToHttp().getRequest<Request>();
     const res = context.switchToHttp().getResponse<Response>();
 
@@ -22,19 +19,15 @@ export class RateLimitGuard implements CanActivate {
     }
 
     const ip = req.ip || 'unknown';
-    const now = Date.now();
-    let bucket = this.buckets.get(ip);
+    const key = `ratelimit:${ip}`;
 
-    if (!bucket || bucket.resetAt <= now) {
-      bucket = { count: 0, resetAt: now + this.windowMs };
-      this.buckets.set(ip, bucket);
-    }
+    const { current, ttl } = await this.cache.incrementRateLimit(key, this.windowSeconds);
 
-    bucket.count += 1;
     res.setHeader('x-ratelimit-limit', String(this.maxRequests));
-    res.setHeader('x-ratelimit-remaining', String(Math.max(0, this.maxRequests - bucket.count)));
+    res.setHeader('x-ratelimit-remaining', String(Math.max(0, this.maxRequests - current)));
+    res.setHeader('x-ratelimit-reset', String(ttl));
 
-    if (bucket.count > this.maxRequests) {
+    if (current > this.maxRequests) {
       throw new DomainError('RATE_LIMIT_EXCEEDED', 'Too many requests; retry later', 429);
     }
 

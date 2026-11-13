@@ -7,6 +7,7 @@ import type {
   Incident,
   IncidentStatus,
   InstanceStatus,
+  NotificationRecord,
   OutboxEvent,
   StepExecution,
   UserTask,
@@ -35,6 +36,7 @@ export interface IInstanceRepository {
   list(filters?: {
     status?: InstanceStatus;
     workflowKey?: string;
+    startedBy?: string;
     limit?: number;
   }): Promise<WorkflowInstance[]>;
   updateWithOcc(instance: WorkflowInstance): Promise<WorkflowInstance>;
@@ -62,6 +64,8 @@ export interface IUserTaskRepository {
     status?: UserTaskStatus;
     assignee?: string;
     candidateGroup?: string;
+    candidateGroups?: string[];
+    userOrGroups?: { userId: string; groups: string[] };
     instanceId?: string;
   }): Promise<UserTask[]>;
   findOverdueTasks(now: Date, limit?: number): Promise<UserTask[]>;
@@ -125,14 +129,30 @@ export interface ICredentialRepository {
   delete(id: string): Promise<void>;
 }
 
+export interface INotificationRepository {
+  create(notification: NotificationRecord): Promise<NotificationRecord>;
+  findById(id: string): Promise<NotificationRecord | null>;
+  list(filters: {
+    recipientId?: string;
+    recipientGroup?: string;
+    recipientOrGroup?: { recipientId: string; groups: string[] };
+    read?: boolean;
+    limit?: number;
+  }): Promise<NotificationRecord[]>;
+  markAsRead(id: string, readAt: Date): Promise<void>;
+  markAllAsRead(recipientId: string, readAt: Date): Promise<void>;
+}
+
 export interface IUserRepository {
   create(user: UserRecord): Promise<UserRecord>;
   findById(id: string): Promise<UserRecord | null>;
   findByEmail(email: string): Promise<UserRecord | null>;
+  list(filters?: { department?: string; isActive?: boolean }): Promise<UserRecord[]>;
   count(): Promise<number>;
   createApiKey(apiKey: ApiKeyRecord): Promise<ApiKeyRecord>;
   findApiKeyByHash(keyHash: string): Promise<ApiKeyRecord | null>;
   touchApiKey(id: string, usedAt: Date): Promise<void>;
+  update(user: UserRecord): Promise<UserRecord>;
 }
 
 export interface IdempotencyRecord {
@@ -156,6 +176,7 @@ export interface IRepositoryRegistry {
   tokens: ITokenRepository;
   steps: IStepRepository;
   userTasks: IUserTaskRepository;
+  notifications: INotificationRepository;
   caseComments: ICaseCommentRepository;
   externalTasks: IExternalTaskRepository;
   subscriptions: ISubscriptionRepository;

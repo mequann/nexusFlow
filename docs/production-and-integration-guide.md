@@ -206,3 +206,4 @@ Without modifying core tables, you can immediately route approvals using live HR
 | **Phase 1: Production Baseline** | Reliability & Security | Separate API + Worker deployments, real secrets in `JWT_SECRET` / `VAULT_MASTER_KEY_*`, `DB_SSL=true`, Redis-backed `RateLimitGuard`, stale `PROCESSING` job reaper |
 | **Phase 2: Enterprise Integration** | Events & Identity | Kafka/RabbitMQ `OutboxEvent` publisher, persistent `connectors` table, OIDC/JWKS SSO in `AuthGuard`, HRIS/SCIM sync + OOO auto-delegation |
 | **Phase 3: Multi-Tenant Scale** | Isolation & Analytics | `tenant_id` + PostgreSQL RLS, per-tenant encryption keys, Prometheus/Grafana SLA & cycle-time dashboards, OpenTelemetry distributed tracing |
+

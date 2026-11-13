@@ -16,7 +16,9 @@ import { CredentialService } from './application/services/credential-service.js'
 import { ExternalTaskService } from './application/services/external-task-service.js';
 import { IncidentService } from './application/services/incident-service.js';
 import { MessageService } from './application/services/message-service.js';
+import { NotificationService } from './application/services/notification-service.js';
 import { TaskService } from './application/services/task-service.js';
+import { UserSyncService } from './application/services/user-sync-service.js';
 import { WorkflowService } from './application/services/workflow-service.js';
 import {
   APP_CONFIG,
@@ -35,6 +37,7 @@ import { PrometheusMetrics } from './infrastructure/observability/metrics.js';
 import { MemoryUnitOfWork } from './infrastructure/repositories/memory/memory-uow.js';
 import { PostgresUnitOfWork } from './infrastructure/repositories/postgres/postgres-uow.js';
 import { CircuitBreakerRegistry } from './infrastructure/resilience/circuit-breaker.js';
+import { CacheService } from './infrastructure/resilience/cache-service.js';
 import { AesGcmCredentialVault } from './infrastructure/security/crypto-vault.js';
 import { JobWorker } from './infrastructure/workers/job-worker.js';
 import { SchedulerWorker } from './infrastructure/workers/scheduler-worker.js';
@@ -47,6 +50,7 @@ import { HealthController } from './interfaces/http/controllers/health.controlle
 import { IncidentsController } from './interfaces/http/controllers/incidents.controller.js';
 import { InstancesController } from './interfaces/http/controllers/instances.controller.js';
 import { MessagesController } from './interfaces/http/controllers/messages.controller.js';
+import { NotificationsController } from './interfaces/http/controllers/notifications.controller.js';
 import { TasksController } from './interfaces/http/controllers/tasks.controller.js';
 import { WebhooksController } from './interfaces/http/controllers/webhooks.controller.js';
 import { WorkflowsController } from './interfaces/http/controllers/workflows.controller.js';
@@ -112,6 +116,7 @@ export class NexusFlowModule implements OnModuleInit, OnModuleDestroy {
         WorkflowsController,
         InstancesController,
         TasksController,
+        NotificationsController,
         CasesController,
         ConnectorsController,
         ExternalTasksController,
@@ -127,9 +132,12 @@ export class NexusFlowModule implements OnModuleInit, OnModuleDestroy {
         { provide: CREDENTIAL_VAULT, useValue: vault },
         { provide: CIRCUIT_BREAKER, useValue: circuitBreaker },
         uowProvider,
+        CacheService,
         NodeExecutorRegistry,
         CredentialService,
         AuthService,
+        UserSyncService,
+        NotificationService,
         WorkflowService,
         WorkflowEngine,
         TaskService,
@@ -142,6 +150,7 @@ export class NexusFlowModule implements OnModuleInit, OnModuleDestroy {
         IdempotencyInterceptor,
         { provide: APP_FILTER, useClass: DomainExceptionFilter },
         { provide: APP_INTERCEPTOR, useClass: CorrelationMetricsInterceptor },
+        RateLimitGuard,
         { provide: APP_GUARD, useClass: RateLimitGuard },
         { provide: APP_GUARD, useClass: AuthGuard },
       ],
@@ -150,9 +159,12 @@ export class NexusFlowModule implements OnModuleInit, OnModuleDestroy {
         APP_LOGGER,
         APP_METRICS,
         UNIT_OF_WORK,
+        CacheService,
         NodeExecutorRegistry,
         CredentialService,
         AuthService,
+        UserSyncService,
+        NotificationService,
         WorkflowService,
         WorkflowEngine,
         TaskService,

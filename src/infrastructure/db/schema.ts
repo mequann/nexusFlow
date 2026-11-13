@@ -20,6 +20,10 @@ export const users = pgTable('users', {
   passwordHash: text('password_hash').notNull(),
   role: text('role').notNull(),
   isActive: boolean('is_active').notNull().default(true),
+  department: text('department'),
+  managerId: uuid('manager_id'),
+  outOfOffice: boolean('out_of_office').notNull().default(false),
+  delegateId: uuid('delegate_id'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
@@ -316,4 +320,25 @@ export const idempotencyKeys = pgTable(
   },
   (table) => [primaryKey({ columns: [table.key, table.scope] })],
 );
+
+export const notifications = pgTable(
+  'notifications',
+  {
+    id: uuid('id').primaryKey(),
+    recipientId: text('recipient_id').notNull(),
+    recipientGroup: text('recipient_group'),
+    title: text('title').notNull(),
+    message: text('message').notNull(),
+    type: text('type').notNull(),
+    taskId: uuid('task_id').references(() => userTasks.id, { onDelete: 'cascade' }),
+    instanceId: uuid('instance_id').references(() => workflowInstances.id, { onDelete: 'cascade' }),
+    read: boolean('read').notNull().default(false),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    readAt: timestamp('read_at', { withTimezone: true }),
+  },
+  (table) => [
+    index('idx_notifications_recipient').on(table.recipientId, table.read, table.createdAt),
+  ],
+);
+
 

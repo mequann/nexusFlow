@@ -55,15 +55,24 @@ export class TasksController {
   @ApiOkResponse({ description: 'List of user tasks', type: UserTaskListResponseDto })
   @ApiUnauthorizedResponse({ description: 'Unauthorized', type: ErrorResponseDto })
   async list(
+    @CurrentPrincipal() principal: AuthPrincipal,
     @Query('status') status?: UserTaskStatus,
     @Query('assignee') assignee?: string,
     @Query('candidateGroup') candidateGroup?: string,
     @Query('instanceId') instanceId?: string,
   ) {
+    const isGlobalAdmin = principal.role === 'ADMIN';
+
+    // Scoping: non-admin users only view tasks assigned to them, or addressed to their groups/departments
+    const userOrGroups = isGlobalAdmin
+      ? undefined
+      : { userId: principal.userId, groups: [principal.email, principal.role.toLowerCase()] };
+
     const items = await this.taskService.listTasks({
       status,
-      assignee,
+      assignee: assignee ?? (isGlobalAdmin ? undefined : principal.userId),
       candidateGroup,
+      userOrGroups,
       instanceId,
     });
     return { items };

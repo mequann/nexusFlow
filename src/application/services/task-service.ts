@@ -15,6 +15,8 @@ export class TaskService {
     status?: UserTaskStatus;
     assignee?: string;
     candidateGroup?: string;
+    candidateGroups?: string[];
+    userOrGroups?: { userId: string; groups: string[] };
     instanceId?: string;
   }): Promise<UserTask[]> {
     return this.uow.repos.userTasks.list(filters);
@@ -77,6 +79,20 @@ export class TaskService {
         attempts: 0,
         createdAt: now,
         publishedAt: null,
+      });
+
+      await repos.notifications.create({
+        id: crypto.randomUUID(),
+        recipientId: toAssignee,
+        recipientGroup: null,
+        title: `Task Delegated: ${task.title}`,
+        message: `Task delegated to you by ${previousOwner}${reason ? `: "${reason}"` : ''}`,
+        type: 'TASK_DELEGATED',
+        taskId: task.id,
+        instanceId: task.instanceId,
+        read: false,
+        createdAt: now,
+        readAt: null,
       });
 
       return updated;
@@ -236,6 +252,24 @@ export class TaskService {
           createdAt: now,
           publishedAt: null,
         });
+
+        if (freshTask.escalateTo) {
+          await repos.notifications.create({
+            id: crypto.randomUUID(),
+            recipientId: freshTask.escalateTo,
+            recipientGroup: null,
+            title: `Task Escalated: ${freshTask.title}`,
+            message: `Task SLA was breached and automatically escalated to you (Level ${
+              freshTask.escalationLevel + 1
+            })`,
+            type: 'TASK_ESCALATED',
+            taskId: freshTask.id,
+            instanceId: freshTask.instanceId,
+            read: false,
+            createdAt: now,
+            readAt: null,
+          });
+        }
 
         escalated += 1;
       });
