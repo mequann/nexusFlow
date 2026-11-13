@@ -48,3 +48,4 @@ CREATE INDEX IF NOT EXISTS idx_instances_tenant_status ON workflow_instances (te
 CREATE INDEX IF NOT EXISTS idx_tasks_tenant_assignee ON user_tasks (tenant_id, assignee, status);
 CREATE INDEX IF NOT EXISTS idx_notifications_tenant_recipient ON notifications (tenant_id, recipient_id, read);
 CREATE INDEX IF NOT EXISTS idx_credentials_tenant_name ON credentials (tenant_id, name);
+

@@ -20,6 +20,8 @@ import { NotificationService } from './application/services/notification-service
 import { TaskService } from './application/services/task-service.js';
 import { UserSyncService } from './application/services/user-sync-service.js';
 import { WorkflowService } from './application/services/workflow-service.js';
+import { CorrespondenceService } from './application/services/correspondence-service.js';
+import { TelegramBotService } from './application/services/telegram-bot-service.js';
 import {
   APP_CONFIG,
   APP_LOGGER,
@@ -54,6 +56,11 @@ import { NotificationsController } from './interfaces/http/controllers/notificat
 import { TasksController } from './interfaces/http/controllers/tasks.controller.js';
 import { WebhooksController } from './interfaces/http/controllers/webhooks.controller.js';
 import { WorkflowsController } from './interfaces/http/controllers/workflows.controller.js';
+import {
+  CorrespondenceController,
+  PublicVerificationController,
+} from './interfaces/http/controllers/correspondence.controller.js';
+import { TelegramWebhookController } from './interfaces/http/controllers/telegram.controller.js';
 import { DomainExceptionFilter } from './interfaces/http/filters/domain-exception.filter.js';
 import { AuthGuard } from './interfaces/http/guards/auth.guard.js';
 import { RateLimitGuard } from './interfaces/http/guards/rate-limit.guard.js';
@@ -124,6 +131,9 @@ export class NexusFlowModule implements OnModuleInit, OnModuleDestroy {
         MessagesController,
         CredentialsController,
         WebhooksController,
+        CorrespondenceController,
+        PublicVerificationController,
+        TelegramWebhookController,
       ],
       providers: [
         { provide: APP_CONFIG, useValue: config satisfies AppConfig },
@@ -145,6 +155,8 @@ export class NexusFlowModule implements OnModuleInit, OnModuleDestroy {
         ExternalTaskService,
         IncidentService,
         MessageService,
+        CorrespondenceService,
+        TelegramBotService,
         JobWorker,
         SchedulerWorker,
         IdempotencyInterceptor,
@@ -172,6 +184,8 @@ export class NexusFlowModule implements OnModuleInit, OnModuleDestroy {
         ExternalTaskService,
         IncidentService,
         MessageService,
+        CorrespondenceService,
+        TelegramBotService,
         JobWorker,
         SchedulerWorker,
       ],
