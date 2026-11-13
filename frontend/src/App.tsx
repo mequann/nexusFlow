@@ -13,10 +13,14 @@ import {
   Plus,
   Plug,
   RefreshCw,
+  RotateCcw,
   Send,
   Shield,
+  Sparkles,
+  Stamp,
   Trash2,
   UserPlus,
+  Users,
   Webhook,
   Workflow,
 } from 'lucide-react';
@@ -24,7 +28,14 @@ import { api, getSavedToken, setSavedToken } from './api';
 import { DynamicForm } from './components/DynamicForm';
 import { WorkflowDesigner } from './components/WorkflowDesigner';
 import { WorkflowGraphView } from './components/WorkflowGraphView';
+import { RoleHeader } from './components/RoleHeader';
+import { NormalUserPortal } from './components/NormalUserPortal';
+import { HRManagerPortal } from './components/HRManagerPortal';
+import { TenantImporterView } from './components/TenantImporterView';
+import { TemporalControlPanel } from './components/TemporalControlPanel';
+import { CorrespondenceRegistryView } from './components/CorrespondenceRegistryView';
 import type {
+  AppPerspective,
   CaseSummary,
   ConnectorDescriptor,
   ExternalTask,
@@ -37,7 +48,19 @@ import type {
   WorkflowRecord,
 } from './types';
 
-type Tab = 'overview' | 'workflows' | 'designer' | 'cases' | 'tasks' | 'operations' | 'connectors';
+type Tab =
+  | 'overview'
+  | 'user-portal'
+  | 'hr-desk'
+  | 'importer'
+  | 'temporal'
+  | 'correspondence'
+  | 'workflows'
+  | 'designer'
+  | 'cases'
+  | 'tasks'
+  | 'operations'
+  | 'connectors';
 
 function statusBadge(status: string) {
   if (status === 'COMPLETED' || status === 'PUBLISHED' || status === 'ON_TRACK' || status === 'ready')
@@ -62,7 +85,20 @@ export default function App() {
   const [loginEmail, setLoginEmail] = useState('admin@nexusflow.local');
   const [loginPassword, setLoginPassword] = useState('AdminChangeMe123!');
 
-  const [tab, setTab] = useState<Tab>('overview');
+  const [perspective, setPerspective] = useState<AppPerspective>('USER');
+  const [lang, setLang] = useState<'en' | 'am'>('en');
+  const [tab, setTab] = useState<Tab>('user-portal');
+
+  const handlePerspectiveChange = (newPerspective: AppPerspective) => {
+    setPerspective(newPerspective);
+    if (newPerspective === 'USER') {
+      setTab('user-portal');
+    } else if (newPerspective === 'HR') {
+      setTab('hr-desk');
+    } else {
+      setTab('overview');
+    }
+  };
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [dbReady, setDbReady] = useState<string>('checking');
@@ -282,52 +318,134 @@ export default function App() {
         </div>
 
         <nav className="nav">
-          <button
-            className={`nav-btn ${tab === 'overview' ? 'active' : ''}`}
-            onClick={() => setTab('overview')}
-          >
-            <Activity size={16} /> Overview
-          </button>
-          <button
-            className={`nav-btn ${tab === 'workflows' ? 'active' : ''}`}
-            onClick={() => setTab('workflows')}
-          >
-            <Workflow size={16} /> Workflows ({workflows.length})
-          </button>
-          <button
-            className={`nav-btn ${tab === 'designer' ? 'active' : ''}`}
-            onClick={() => {
-              setDesignerTarget(null);
-              setDesignerKeyCounter((c) => c + 1);
-              setTab('designer');
-            }}
-          >
-            <Plus size={16} /> Drag & Drop Designer
-          </button>
-          <button
-            className={`nav-btn ${tab === 'cases' ? 'active' : ''}`}
-            onClick={() => setTab('cases')}
-          >
-            <Briefcase size={16} /> Cases & Trace ({instances.length})
-          </button>
-          <button
-            className={`nav-btn ${tab === 'tasks' ? 'active' : ''}`}
-            onClick={() => setTab('tasks')}
-          >
-            <CheckCircle2 size={16} /> Approval Inbox ({openTasksCount})
-          </button>
-          <button
-            className={`nav-btn ${tab === 'operations' ? 'active' : ''}`}
-            onClick={() => setTab('operations')}
-          >
-            <AlertTriangle size={16} /> Incidents & Workers ({openIncidentsCount})
-          </button>
-          <button
-            className={`nav-btn ${tab === 'connectors' ? 'active' : ''}`}
-            onClick={() => setTab('connectors')}
-          >
-            <Plug size={16} /> Connectors, Vault & Access
-          </button>
+          {perspective === 'USER' && (
+            <>
+              <button
+                className={`nav-btn ${tab === 'user-portal' ? 'active' : ''}`}
+                onClick={() => setTab('user-portal')}
+              >
+                <CheckCircle2 size={16} /> {lang === 'am' ? 'የእኔ ዴስክ (My Workspace)' : 'My Desk & Requisitions'}
+                {openTasksCount > 0 && <span className="counter-pill" style={{ marginLeft: 'auto' }}>{openTasksCount}</span>}
+              </button>
+              <button
+                className={`nav-btn ${tab === 'correspondence' ? 'active' : ''}`}
+                onClick={() => setTab('correspondence')}
+              >
+                <Stamp size={16} /> {lang === 'am' ? 'ደብዳቤዎችና ማህተሞች' : 'Official Registry & Seals'}
+              </button>
+              <button
+                className={`nav-btn ${tab === 'cases' ? 'active' : ''}`}
+                onClick={() => setTab('cases')}
+              >
+                <Briefcase size={16} /> {lang === 'am' ? 'የጥያቄዎቼ ሁኔታ (Track Cases)' : 'Track My Cases'} ({instances.length})
+              </button>
+            </>
+          )}
+
+          {perspective === 'HR' && (
+            <>
+              <button
+                className={`nav-btn ${tab === 'hr-desk' ? 'active' : ''}`}
+                onClick={() => setTab('hr-desk')}
+              >
+                <Users size={16} /> {lang === 'am' ? 'የHR ሥራ አመራር (People Ops)' : 'HR People Operations & Quorum'}
+                {openTasksCount > 0 && <span className="counter-pill" style={{ marginLeft: 'auto' }}>{openTasksCount}</span>}
+              </button>
+              <button
+                className={`nav-btn ${tab === 'tasks' ? 'active' : ''}`}
+                onClick={() => setTab('tasks')}
+              >
+                <CheckCircle2 size={16} /> {lang === 'am' ? 'የተግባራት ዝርዝር (Inbox)' : 'Approval Inbox'} ({openTasksCount})
+              </button>
+              <button
+                className={`nav-btn ${tab === 'cases' ? 'active' : ''}`}
+                onClick={() => setTab('cases')}
+              >
+                <Briefcase size={16} /> Cases & Trace ({instances.length})
+              </button>
+              <button
+                className={`nav-btn ${tab === 'correspondence' ? 'active' : ''}`}
+                onClick={() => setTab('correspondence')}
+              >
+                <Stamp size={16} /> Official Registry & Seals
+              </button>
+              <button
+                className={`nav-btn ${tab === 'workflows' ? 'active' : ''}`}
+                onClick={() => setTab('workflows')}
+              >
+                <Workflow size={16} /> Workflows ({workflows.length})
+              </button>
+            </>
+          )}
+
+          {perspective === 'ADMIN' && (
+            <>
+              <button
+                className={`nav-btn ${tab === 'overview' ? 'active' : ''}`}
+                onClick={() => setTab('overview')}
+              >
+                <Activity size={16} /> Overview
+              </button>
+              <button
+                className={`nav-btn ${tab === 'importer' ? 'active' : ''}`}
+                onClick={() => setTab('importer')}
+              >
+                <Sparkles size={16} /> Tenant Importer (JSON)
+              </button>
+              <button
+                className={`nav-btn ${tab === 'temporal' ? 'active' : ''}`}
+                onClick={() => setTab('temporal')}
+              >
+                <RotateCcw size={16} /> Temporal Time-Travel & Ops
+              </button>
+              <button
+                className={`nav-btn ${tab === 'correspondence' ? 'active' : ''}`}
+                onClick={() => setTab('correspondence')}
+              >
+                <Stamp size={16} /> Official Registry & Seals
+              </button>
+              <button
+                className={`nav-btn ${tab === 'workflows' ? 'active' : ''}`}
+                onClick={() => setTab('workflows')}
+              >
+                <Workflow size={16} /> Workflows ({workflows.length})
+              </button>
+              <button
+                className={`nav-btn ${tab === 'designer' ? 'active' : ''}`}
+                onClick={() => {
+                  setDesignerTarget(null);
+                  setDesignerKeyCounter((c) => c + 1);
+                  setTab('designer');
+                }}
+              >
+                <Plus size={16} /> Drag & Drop Designer
+              </button>
+              <button
+                className={`nav-btn ${tab === 'cases' ? 'active' : ''}`}
+                onClick={() => setTab('cases')}
+              >
+                <Briefcase size={16} /> Cases & Trace ({instances.length})
+              </button>
+              <button
+                className={`nav-btn ${tab === 'tasks' ? 'active' : ''}`}
+                onClick={() => setTab('tasks')}
+              >
+                <CheckCircle2 size={16} /> Approval Inbox ({openTasksCount})
+              </button>
+              <button
+                className={`nav-btn ${tab === 'operations' ? 'active' : ''}`}
+                onClick={() => setTab('operations')}
+              >
+                <AlertTriangle size={16} /> Incidents & Workers ({openIncidentsCount})
+              </button>
+              <button
+                className={`nav-btn ${tab === 'connectors' ? 'active' : ''}`}
+                onClick={() => setTab('connectors')}
+              >
+                <Plug size={16} /> Connectors & Vault
+              </button>
+            </>
+          )}
         </nav>
 
         <div style={{ marginTop: 'auto', borderTop: '1px solid var(--border)', paddingTop: 14 }}>
@@ -353,47 +471,50 @@ export default function App() {
         </div>
       </aside>
 
-      <main className="main">
-        <div className="topbar">
-          <div>
-            <h1 style={{ margin: 0, fontSize: 22 }}>
-              {tab === 'overview' && 'Executive Control Plane'}
-              {tab === 'workflows' && 'Published Workflows & Runner'}
-              {tab === 'designer' && 'Drag & Drop Workflow Designer (Sequential & Parallel)'}
-              {tab === 'cases' && 'Kissflow Business Cases & Live Execution Trace'}
-              {tab === 'tasks' && 'Human Approval & Task Inbox'}
-              {tab === 'operations' && 'Camunda Incidents & Polyglot Workers'}
-              {tab === 'connectors' && 'Dynamic Connectors, Vault & RBAC Access'}
-            </h1>
-            <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>
-              NestJS · Drizzle ORM · PostgreSQL · Swagger OpenAPI at{' '}
-              <a
-                href="http://localhost:3000/docs"
-                target="_blank"
-                rel="noreferrer"
-                style={{ color: '#67e8f9' }}
-              >
-                /docs
-              </a>
+      <main className="main" style={{ padding: 0 }}>
+        <RoleHeader
+          user={user}
+          perspective={perspective}
+          setPerspective={handlePerspectiveChange}
+          lang={lang}
+          setLang={setLang}
+          onLogout={handleLogout}
+          onRefresh={() => void refreshAll()}
+          autoPoll={autoPoll}
+          setAutoPoll={setAutoPoll}
+          dbReady={dbReady}
+        />
+
+        <div style={{ padding: '20px 24px' }}>
+          <div className="topbar">
+            <div>
+              <h1 style={{ margin: 0, fontSize: 22 }}>
+                {tab === 'user-portal' && (lang === 'am' ? 'የሠራተኛ የራስ-አገልግሎት ዴስክ (Self-Service)' : 'Employee Self-Service Desk & Service Catalog')}
+                {tab === 'hr-desk' && (lang === 'am' ? 'የሰው ኃይል ሥራ አመራርና ማጽደቂያ (People Operations)' : 'HR People Operations & Consensus Review')}
+                {tab === 'importer' && (lang === 'am' ? 'የድርጅት የሥራ ፍሰት መጫኛ (Tenant Workflow Importer)' : 'Enterprise Tenant Workflow Importer')}
+                {tab === 'temporal' && (lang === 'am' ? 'የቴምፖራል ኦፕሬሽንና የጊዜ ጉዞ (Temporal Ops)' : 'Temporal Point-in-Time Reset & Control Panel')}
+                {tab === 'correspondence' && (lang === 'am' ? 'የደብዳቤዎችና ሰነዶች መዝገብ (Registry & Seals)' : 'Inbound / Outbound Correspondence & Digital Seals')}
+                {tab === 'overview' && 'Executive Control Plane'}
+                {tab === 'workflows' && 'Published Workflows & Runner'}
+                {tab === 'designer' && 'Drag & Drop Workflow Designer (Sequential & Parallel)'}
+                {tab === 'cases' && 'Kissflow Business Cases & Live Execution Trace'}
+                {tab === 'tasks' && 'Human Approval & Task Inbox'}
+                {tab === 'operations' && 'Camunda Incidents & Polyglot Workers'}
+                {tab === 'connectors' && 'Dynamic Connectors, Vault & RBAC Access'}
+              </h1>
+              <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>
+                NexusFlow Orchestration Engine · Multi-Tenant · Bilingual (Amharic/English) · Ethiopian Ge'ez Calendar
+              </div>
+            </div>
+            <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+              <button className="btn btn-primary" onClick={() => void refreshAll()}>
+                <RefreshCw size={14} /> Refresh
+              </button>
             </div>
           </div>
-          <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-            <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
-              <input
-                type="checkbox"
-                checked={autoPoll}
-                onChange={(e) => setAutoPoll(e.target.checked)}
-              />
-              Live Sync (2.5s)
-            </label>
-            <button className="btn btn-primary" onClick={() => void refreshAll()}>
-              <RefreshCw size={14} /> Refresh
-            </button>
-          </div>
-        </div>
 
-        {error && <div className="alert alert-error">{error}</div>}
-        {notice && <div className="alert alert-ok">{notice}</div>}
+          {error && <div className="alert alert-error">{error}</div>}
+          {notice && <div className="alert alert-ok">{notice}</div>}
 
         {tab === 'overview' && (
           <>
@@ -1468,6 +1589,57 @@ export default function App() {
             </div>
           </div>
         )}
+
+        {/* 8. NORMAL USER SELF-SERVICE PORTAL */}
+        {tab === 'user-portal' && (
+          <NormalUserPortal
+            user={user}
+            tasks={tasks}
+            instances={instances}
+            workflows={workflows}
+            onActionComplete={() => void refreshAll()}
+            lang={lang}
+          />
+        )}
+
+        {/* 9. HR MANAGER DESK & QUORUM */}
+        {tab === 'hr-desk' && (
+          <HRManagerPortal
+            user={user}
+            tasks={tasks}
+            instances={instances}
+            workflows={workflows}
+            onActionComplete={() => void refreshAll()}
+            lang={lang}
+          />
+        )}
+
+        {/* 10. TENANT WORKFLOW IMPORTER (REVERSE ENGINEERED JSON ENGINE) */}
+        {tab === 'importer' && (
+          <TenantImporterView
+            onImportComplete={() => void refreshAll()}
+            lang={lang}
+          />
+        )}
+
+        {/* 11. TEMPORAL OPS CONTROL PANEL */}
+        {tab === 'temporal' && (
+          <TemporalControlPanel
+            instances={instances}
+            externalTasks={externalTasks}
+            onActionComplete={() => void refreshAll()}
+            lang={lang}
+          />
+        )}
+
+        {/* 12. ETHIOPIAN PAPERLESS REGISTRY & DIGITAL SEALS */}
+        {tab === 'correspondence' && (
+          <CorrespondenceRegistryView
+            user={user}
+            lang={lang}
+          />
+        )}
+        </div>
       </main>
     </div>
   );

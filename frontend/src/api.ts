@@ -2,10 +2,12 @@ import type {
   CaseComment,
   CaseSummary,
   ConnectorDescriptor,
+  CorrespondenceItem,
   ExternalTask,
   Incident,
   InstanceTrace,
   MaskedCredential,
+  TenantImportValidationResult,
   UserInfo,
   UserTask,
   WorkflowInstance,
@@ -222,6 +224,97 @@ export const api = {
     request<ExternalTask>(`/api/v1/external-tasks/${id}/failure`, {
       method: 'POST',
       body: JSON.stringify({ workerId, errorMessage, retriesRemaining }),
+    }),
+
+  // Temporal Capabilities
+  resetInstance: (
+    id: string,
+    payload: { targetNodeId: string; reason?: string; variablesOverride?: Record<string, unknown> },
+  ) =>
+    request<WorkflowInstance>(`/api/v1/instances/${id}/reset`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+
+  continueAsNew: (
+    id: string,
+    payload: { carryoverVariables?: Record<string, unknown>; reason?: string },
+  ) =>
+    request<WorkflowInstance>(`/api/v1/instances/${id}/continue-as-new`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+
+  queryInstance: (id: string, payload: { expression?: string; variableKey?: string }) =>
+    request<{ instanceId: string; status: string; result: unknown; evaluatedAt: string }>(
+      `/api/v1/instances/${id}/query`,
+      {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      },
+    ),
+
+  heartbeatExternalTask: (
+    id: string,
+    payload: { workerId: string; progress?: number; extendLockMs?: number },
+  ) =>
+    request<{ taskId: string; lastHeartbeatAt: string; progress: number }>(
+      `/api/v1/external-tasks/${id}/heartbeat`,
+      {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      },
+    ),
+
+  getExternalTaskProgress: (id: string) =>
+    request<{ taskId: string; progress: number; lastHeartbeatAt: string | null }>(
+      `/api/v1/external-tasks/${id}/progress`,
+    ),
+
+  // Tenant Workflow Importer (Reverse Engineering Import Template)
+  validateTenantImport: (data: unknown) =>
+    request<TenantImportValidationResult>('/api/v1/workflows/import/json/validate', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+
+  processTenantImport: (data: unknown) =>
+    request<{ importedCount: number; workflows: Array<{ id: string; key: string; name: string; version: number }> }>(
+      '/api/v1/workflows/import/json/process',
+      {
+        method: 'POST',
+        body: JSON.stringify(data),
+      },
+    ),
+
+  // Ethiopian Paperless Office Correspondence & Digital Registry
+  listCorrespondence: () => request<{ items: CorrespondenceItem[] }>('/api/v1/correspondence'),
+
+  createCorrespondence: (payload: {
+    type: 'INBOUND' | 'OUTBOUND' | 'INTERNAL_MEMO';
+    subject: string;
+    senderOrg: string;
+    recipientOrg: string;
+    urgency?: string;
+    classification?: string;
+    bodyHtml?: string;
+    customPrefix?: string;
+  }) =>
+    request<CorrespondenceItem>('/api/v1/correspondence', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+
+  addMinute: (id: string, payload: { actionTaken: string; comment: string }) =>
+    request<CorrespondenceItem>(`/api/v1/correspondence/${id}/minutes`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+
+  approveAndSeal: (id: string, payload: { signatoryRole: string; baseUrl?: string }) =>
+    request<CorrespondenceItem>(`/api/v1/correspondence/${id}/seal`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
     }),
 };
 

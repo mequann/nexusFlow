@@ -2,8 +2,11 @@ export interface UserInfo {
   id: string;
   email: string;
   name: string;
-  role: 'ADMIN' | 'OPERATOR' | 'BUILDER' | 'VIEWER';
+  role: 'ADMIN' | 'OPERATOR' | 'BUILDER' | 'VIEWER' | 'HR' | 'USER';
+  department?: string;
 }
+
+export type AppPerspective = 'ADMIN' | 'HR' | 'USER';
 
 export interface WorkflowNode {
   id: string;
@@ -66,6 +69,9 @@ export interface WorkflowInstance {
   triggerType: string;
   variables: Record<string, unknown>;
   occVersion: number;
+  generation?: number;
+  parentClosePolicy?: string;
+  continuedFromInstanceId?: string;
   startedAt: string;
   completedAt: string | null;
 }
@@ -176,5 +182,72 @@ export interface ExternalTask {
   status: string;
   variables: Record<string, unknown>;
   retries: number;
+  lastHeartbeatAt?: string | null;
+  heartbeatTimeoutSeconds?: number | null;
+  progress?: number | null;
 }
+
+export interface MinuteRecord {
+  id: string;
+  authorId: string;
+  authorName: string;
+  authorRole: string;
+  department: string;
+  actionTaken: 'FORWARDED' | 'RECOMMENDED' | 'APPROVED' | 'REJECTED' | 'COMMENT';
+  comment: string;
+  ethiopianDateStr: string;
+  createdAt: string;
+}
+
+export interface DigitalSealInfo {
+  algorithm: string;
+  sealedBy: string;
+  signatoryRole: string;
+  digest: string;
+  verificationUrl: string;
+  qrData: string;
+  sealedAtGregorian: string;
+  sealedAtEthiopian: string;
+}
+
+export interface CorrespondenceItem {
+  id: string;
+  referenceNumber: string;
+  type: 'INBOUND' | 'OUTBOUND' | 'INTERNAL_MEMO';
+  subject: string;
+  senderOrg: string;
+  recipientOrg: string;
+  urgency: 'NORMAL' | 'URGENT' | 'VERY_URGENT';
+  classification: 'PUBLIC' | 'CONFIDENTIAL' | 'TOP_SECRET';
+  status: 'DRAFT' | 'IN_REVIEW' | 'DIRECTOR_APPROVAL' | 'SEALED' | 'ARCHIVED';
+  bodyHtml?: string;
+  ethiopianDateStr: string;
+  minutes: MinuteRecord[];
+  digitalSeal?: DigitalSealInfo;
+  createdAt: string;
+}
+
+export interface TenantImportValidationResult {
+  valid: boolean;
+  errors: string[];
+  summary: {
+    workflowCount: number;
+    workflows: Array<{
+      code: string;
+      name: string;
+      domainService: string;
+      version: number;
+      stepsCount: number;
+      steps: Array<{
+        stepOrder: number;
+        code: string;
+        name: string;
+        collaborationMode: string;
+        timeLimitHours: number;
+        statuses: string[];
+      }>;
+    }>;
+  };
+}
+
 
