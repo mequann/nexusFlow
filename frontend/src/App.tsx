@@ -5,6 +5,7 @@ import {
   Briefcase,
   CheckCircle2,
   Cpu,
+  FileText,
   KeyRound,
   LogOut,
   MessageSquare,
@@ -34,6 +35,7 @@ import { HRManagerPortal } from './components/HRManagerPortal';
 import { TenantImporterView } from './components/TenantImporterView';
 import { TemporalControlPanel } from './components/TemporalControlPanel';
 import { CorrespondenceRegistryView } from './components/CorrespondenceRegistryView';
+import { LogsView } from './components/LogsView';
 import type {
   AppPerspective,
   CaseSummary,
@@ -55,6 +57,7 @@ type Tab =
   | 'importer'
   | 'temporal'
   | 'correspondence'
+  | 'logs'
   | 'workflows'
   | 'designer'
   | 'cases'
@@ -370,6 +373,12 @@ export default function App() {
                 <Stamp size={16} /> Official Registry & Seals
               </button>
               <button
+                className={`nav-btn ${tab === 'logs' ? 'active' : ''}`}
+                onClick={() => setTab('logs')}
+              >
+                <FileText size={16} /> Logs & Compliance Audit
+              </button>
+              <button
                 className={`nav-btn ${tab === 'workflows' ? 'active' : ''}`}
                 onClick={() => setTab('workflows')}
               >
@@ -403,6 +412,12 @@ export default function App() {
                 onClick={() => setTab('correspondence')}
               >
                 <Stamp size={16} /> Official Registry & Seals
+              </button>
+              <button
+                className={`nav-btn ${tab === 'logs' ? 'active' : ''}`}
+                onClick={() => setTab('logs')}
+              >
+                <FileText size={16} /> Logs & Compliance Audit
               </button>
               <button
                 className={`nav-btn ${tab === 'workflows' ? 'active' : ''}`}
@@ -494,6 +509,7 @@ export default function App() {
                 {tab === 'importer' && (lang === 'am' ? 'የድርጅት የሥራ ፍሰት መጫኛ (Tenant Workflow Importer)' : 'Enterprise Tenant Workflow Importer')}
                 {tab === 'temporal' && (lang === 'am' ? 'የቴምፖራል ኦፕሬሽንና የጊዜ ጉዞ (Temporal Ops)' : 'Temporal Point-in-Time Reset & Control Panel')}
                 {tab === 'correspondence' && (lang === 'am' ? 'የደብዳቤዎችና ሰነዶች መዝገብ (Registry & Seals)' : 'Inbound / Outbound Correspondence & Digital Seals')}
+                {tab === 'logs' && (lang === 'am' ? 'የሎግና የቁጥጥር ኦዲት መዝገብ (Logging & Compliance)' : 'Enterprise Logging & Compliance Audit Trail')}
                 {tab === 'overview' && 'Executive Control Plane'}
                 {tab === 'workflows' && 'Published Workflows & Runner'}
                 {tab === 'designer' && 'Drag & Drop Workflow Designer (Sequential & Parallel)'}
@@ -1637,6 +1653,14 @@ export default function App() {
           <CorrespondenceRegistryView
             user={user}
             lang={lang}
+          />
+        )}
+
+        {/* 13. LOGGING & COMPLIANCE AUDIT SYSTEMS */}
+        {tab === 'logs' && (
+          <LogsView
+            onNotify={notify}
+            onError={setError}
           />
         )}
         </div>

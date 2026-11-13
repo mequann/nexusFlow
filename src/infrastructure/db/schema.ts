@@ -358,3 +358,25 @@ export const notifications = pgTable(
 );
 
 
+
+export const auditLogs = pgTable(
+  'audit_logs',
+  {
+    id: uuid('id').primaryKey(),
+    tenantId: text('tenant_id').notNull().default('default').references(() => tenants.id, { onDelete: 'cascade' }),
+    userId: uuid('user_id').references(() => users.id, { onDelete: 'set null' }),
+    userEmail: text('user_email'),
+    action: text('action').notNull(),
+    resourceType: text('resource_type').notNull(),
+    resourceId: text('resource_id').notNull(),
+    details: jsonb('details').$type<Record<string, unknown>>().notNull().default({}),
+    ipAddress: text('ip_address'),
+    userAgent: text('user_agent'),
+    timestamp: timestamp('timestamp', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index('idx_audit_logs_tenant_ts').on(table.tenantId, table.timestamp),
+    index('idx_audit_logs_action').on(table.action),
+    index('idx_audit_logs_resource').on(table.resourceType, table.resourceId),
+  ],
+);

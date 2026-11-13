@@ -47,6 +47,8 @@ import type {
   IUserRepository,
   IUserTaskRepository,
   IWorkflowRepository,
+  AuditLogEntry,
+  IAuditLogRepository,
 } from '../../../domain/ports/repositories.js';
 import type { CredentialRecord, Role, TenantRecord } from '../../../domain/security/types.js';
 import type { WorkflowDefinitionRecord, WorkflowStatus } from '../../../domain/workflow/types.js';
@@ -1194,6 +1196,44 @@ function buildDrizzleRegistry(db: DrizzleDb): IRepositoryRegistry {
     },
   };
 
+    const auditLogs: IAuditLogRepository = {
+    append: async (entry) => {
+      const [row] = await db
+        .insert(schema.auditLogs)
+        .values({
+          id: entry.id,
+          tenantId: entry.tenantId,
+          userId: entry.userId,
+          userEmail: entry.userEmail,
+          action: entry.action,
+          resourceType: entry.resourceType,
+          resourceId: entry.resourceId,
+          details: entry.details,
+          ipAddress: entry.ipAddress ?? null,
+          userAgent: entry.userAgent ?? null,
+          timestamp: entry.timestamp,
+        })
+        .returning();
+      return row as AuditLogEntry;
+    },
+    list: async (filters) => {
+      const conditions = [];
+      if (filters?.tenantId) conditions.push(eq(schema.auditLogs.tenantId, filters.tenantId));
+      if (filters?.action) conditions.push(eq(schema.auditLogs.action, filters.action));
+      if (filters?.userId) conditions.push(eq(schema.auditLogs.userId, filters.userId));
+      if (filters?.resourceType) conditions.push(eq(schema.auditLogs.resourceType, filters.resourceType));
+
+      const query = db
+        .select()
+        .from(schema.auditLogs)
+        .orderBy(desc(schema.auditLogs.timestamp))
+        .limit(filters?.limit ?? 100);
+
+      const rows = conditions.length > 0 ? await query.where(and(...conditions)) : await query;
+      return rows as AuditLogEntry[];
+    },
+  };
+
   return {
     tenants,
     workflows,
@@ -1211,6 +1251,7 @@ function buildDrizzleRegistry(db: DrizzleDb): IRepositoryRegistry {
     credentials,
     users,
     idempotency,
+    auditLogs,
   };
 }
 

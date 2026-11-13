@@ -163,6 +163,23 @@ export class WorkflowEngine {
         createdAt: now,
         publishedAt: null,
       });
+      await repos.auditLogs.append({
+        id: crypto.randomUUID(),
+        tenantId: instance.tenantId,
+        userId: instance.startedBy,
+        userEmail: null,
+        action: 'INSTANCE_STARTED',
+        resourceType: 'WorkflowInstance',
+        resourceId: instanceId,
+        details: {
+          workflowKey: workflow.key,
+          version: workflow.version,
+          triggerType: instance.triggerType,
+        },
+        ipAddress: null,
+        userAgent: null,
+        timestamp: now,
+      });
     });
 
     this.logger.info('Workflow instance started', {

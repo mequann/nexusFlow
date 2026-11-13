@@ -181,6 +181,31 @@ export interface IIdempotencyRepository {
   save(record: IdempotencyRecord): Promise<void>;
 }
 
+export interface AuditLogEntry {
+  id: string;
+  tenantId: string;
+  userId: string | null;
+  userEmail: string | null;
+  action: string;
+  resourceType: string;
+  resourceId: string;
+  details: Record<string, unknown>;
+  ipAddress?: string | null;
+  userAgent?: string | null;
+  timestamp: Date;
+}
+
+export interface IAuditLogRepository {
+  append(entry: AuditLogEntry): Promise<AuditLogEntry>;
+  list(filters?: {
+    tenantId?: string;
+    action?: string;
+    userId?: string;
+    resourceType?: string;
+    limit?: number;
+  }): Promise<AuditLogEntry[]>;
+}
+
 export interface IRepositoryRegistry {
   tenants: ITenantRepository;
   workflows: IWorkflowRepository;
@@ -198,6 +223,7 @@ export interface IRepositoryRegistry {
   credentials: ICredentialRepository;
   users: IUserRepository;
   idempotency: IIdempotencyRepository;
+  auditLogs: IAuditLogRepository;
 }
 
 export interface IUnitOfWork {

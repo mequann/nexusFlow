@@ -1,8 +1,16 @@
+export interface LogEntry {
+  timestamp: string;
+  level: 'info' | 'warn' | 'error' | 'debug';
+  message: string;
+  meta?: Record<string, unknown>;
+}
+
 export interface ILogger {
   info(msg: string, meta?: Record<string, unknown>): void;
   warn(msg: string, meta?: Record<string, unknown>): void;
   error(msg: string, meta?: Record<string, unknown>): void;
   debug(msg: string, meta?: Record<string, unknown>): void;
+  getRecentLogs?(limit?: number, minLevel?: string): LogEntry[];
 }
 
 export interface IMetrics {

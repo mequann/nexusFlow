@@ -65,6 +65,8 @@ import {
 } from './interfaces/http/controllers/correspondence.controller.js';
 import { TelegramWebhookController } from './interfaces/http/controllers/telegram.controller.js';
 import { TemplateController } from './interfaces/http/controllers/template.controller.js';
+import { LogsController } from './interfaces/http/controllers/logs.controller.js';
+import { AuditLogService } from './application/services/audit-log.service.js';
 import { DomainExceptionFilter } from './interfaces/http/filters/domain-exception.filter.js';
 import { AuthGuard } from './interfaces/http/guards/auth.guard.js';
 import { RateLimitGuard } from './interfaces/http/guards/rate-limit.guard.js';
@@ -140,6 +142,7 @@ export class NexusFlowModule implements OnModuleInit, OnModuleDestroy {
         PublicVerificationController,
         TelegramWebhookController,
         TemplateController,
+        LogsController,
       ],
       providers: [
         { provide: APP_CONFIG, useValue: config satisfies AppConfig },
@@ -165,6 +168,7 @@ export class NexusFlowModule implements OnModuleInit, OnModuleDestroy {
         CorrespondenceService,
         TelegramBotService,
         EventDispatcherService,
+        AuditLogService,
         JobWorker,
         SchedulerWorker,
         IdempotencyInterceptor,
@@ -196,6 +200,7 @@ export class NexusFlowModule implements OnModuleInit, OnModuleDestroy {
         CorrespondenceService,
         TelegramBotService,
         EventDispatcherService,
+        AuditLogService,
         JobWorker,
         SchedulerWorker,
       ],

@@ -251,3 +251,24 @@ export interface TenantImportValidationResult {
 }
 
 
+
+export interface AuditLogRecord {
+  id: string;
+  tenantId: string;
+  userId: string | null;
+  userEmail: string | null;
+  action: string;
+  resourceType: string;
+  resourceId: string;
+  details: Record<string, unknown>;
+  ipAddress?: string | null;
+  userAgent?: string | null;
+  timestamp: string;
+}
+
+export interface SystemLogEntry {
+  timestamp: string;
+  level: 'info' | 'warn' | 'error' | 'debug';
+  message: string;
+  meta?: Record<string, unknown>;
+}

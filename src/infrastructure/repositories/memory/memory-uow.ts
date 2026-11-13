@@ -32,6 +32,8 @@ import type {
   IUserTaskRepository,
   IWorkflowRepository,
   IdempotencyRecord,
+  AuditLogEntry,
+  IAuditLogRepository,
 } from '../../../domain/ports/repositories.js';
 import type { ApiKeyRecord, CredentialRecord, TenantRecord, UserRecord } from '../../../domain/security/types.js';
 import type { WorkflowDefinitionRecord } from '../../../domain/workflow/types.js';
@@ -58,6 +60,7 @@ export class MemoryUnitOfWork implements IUnitOfWork {
   private readonly usersMap = new Map<string, UserRecord>();
   private readonly apiKeysMap = new Map<string, ApiKeyRecord>();
   private readonly idempotencyMap = new Map<string, IdempotencyRecord>();
+  private readonly auditLogsList: AuditLogEntry[] = [];
 
   private txChain: Promise<unknown> = Promise.resolve();
   public readonly repos: IRepositoryRegistry;
@@ -719,6 +722,26 @@ export class MemoryUnitOfWork implements IUnitOfWork {
       },
     };
 
+    const auditLogs: IAuditLogRepository = {
+      append: async (entry) => {
+        const saved = clone(entry);
+        this.auditLogsList.unshift(saved);
+        return clone(saved);
+      },
+      list: async (filters) => {
+        return this.auditLogsList
+          .filter((a) => {
+            if (filters?.tenantId && a.tenantId !== filters.tenantId) return false;
+            if (filters?.action && a.action !== filters.action) return false;
+            if (filters?.userId && a.userId !== filters.userId) return false;
+            if (filters?.resourceType && a.resourceType !== filters.resourceType) return false;
+            return true;
+          })
+          .slice(0, filters?.limit ?? 100)
+          .map(clone);
+      },
+    };
+
     return {
       tenants,
       workflows,
@@ -736,6 +759,7 @@ export class MemoryUnitOfWork implements IUnitOfWork {
       credentials,
       users,
       idempotency,
+      auditLogs,
     };
   }
 }

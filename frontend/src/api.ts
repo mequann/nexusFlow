@@ -12,6 +12,8 @@ import type {
   UserTask,
   WorkflowInstance,
   WorkflowRecord,
+  AuditLogRecord,
+  SystemLogEntry,
 } from './types';
 
 const TOKEN_KEY = 'nexusflow_jwt';
@@ -316,5 +318,26 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(payload),
     }),
+
+  // Logging & Compliance Systems
+  getAuditLogs: (filters?: { action?: string; resourceType?: string; limit?: number }) => {
+    const params = new URLSearchParams();
+    if (filters?.action) params.set('action', filters.action);
+    if (filters?.resourceType) params.set('resourceType', filters.resourceType);
+    if (filters?.limit) params.set('limit', String(filters.limit));
+    const qs = params.toString();
+    return request<{ items: AuditLogRecord[]; total: number }>(`/api/v1/logs/audit${qs ? `?${qs}` : ''}`);
+  },
+
+  getSystemLogs: (filters?: { minLevel?: string; limit?: number }) => {
+    const params = new URLSearchParams();
+    if (filters?.minLevel) params.set('minLevel', filters.minLevel);
+    if (filters?.limit) params.set('limit', String(filters.limit));
+    const qs = params.toString();
+    return request<{ items: SystemLogEntry[]; total: number }>(`/api/v1/logs/system${qs ? `?${qs}` : ''}`);
+  },
+
+  getInstanceExecutionLogs: (instanceId: string) =>
+    request<{ instanceId: string; steps: any[]; total: number }>(`/api/v1/logs/instances/${instanceId}`),
 };
 

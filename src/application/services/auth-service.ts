@@ -125,6 +125,20 @@ export class AuthService {
       .setExpirationTime(`${expiresInSeconds}s`)
       .sign(this.jwtSecretKey);
 
+    await this.uow.repos.auditLogs.append({
+      id: crypto.randomUUID(),
+      tenantId: user.tenantId,
+      userId: user.id,
+      userEmail: user.email,
+      action: 'AUTH_LOGIN',
+      resourceType: 'User',
+      resourceId: user.id,
+      details: { role: user.role, loginTime: new Date().toISOString() },
+      ipAddress: null,
+      userAgent: null,
+      timestamp: new Date(),
+    });
+
     return {
       accessToken,
       tokenType: 'Bearer',
