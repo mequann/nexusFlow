@@ -126,3 +126,4 @@ When presenting NexusFlow, use this **4-Step Pitch Structure**:
 
 ### Step 4: Highlight Senior Backend Engineering Rigor
 > *"Under the hood, it's not a prototype. It features PostgreSQL `FOR UPDATE SKIP LOCKED` for lock contention, Drizzle ORM with Optimistic Concurrency Control, a Transactional Outbox for distributed event safety, AES-256-GCM envelope encryption, and 17 comprehensive test suites passing at 100%."*
+

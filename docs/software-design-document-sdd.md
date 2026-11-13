@@ -292,3 +292,4 @@ All entities are strictly partitioned by `tenant_id` for multi-tenant isolation:
 - **DMN 1.3 Compliance**: Single-hit (`FIRST`) and multi-hit (`COLLECT`) decision logic.
 - **PACELC / CAP Properties**: Consistent (CP) on state transitions within a partition; Available (AP) on read-only live queries and external task polling.
 - **Zero-Downtime Migration**: PostgreSQL schema managed via idempotent Drizzle migrations.
+

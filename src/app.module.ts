@@ -63,6 +63,7 @@ import {
   PublicVerificationController,
 } from './interfaces/http/controllers/correspondence.controller.js';
 import { TelegramWebhookController } from './interfaces/http/controllers/telegram.controller.js';
+import { TemplateController } from './interfaces/http/controllers/template.controller.js';
 import { DomainExceptionFilter } from './interfaces/http/filters/domain-exception.filter.js';
 import { AuthGuard } from './interfaces/http/guards/auth.guard.js';
 import { RateLimitGuard } from './interfaces/http/guards/rate-limit.guard.js';
@@ -137,6 +138,7 @@ export class NexusFlowModule implements OnModuleInit, OnModuleDestroy {
         CorrespondenceController,
         PublicVerificationController,
         TelegramWebhookController,
+        TemplateController,
       ],
       providers: [
         { provide: APP_CONFIG, useValue: config satisfies AppConfig },
