@@ -56,6 +56,11 @@ import * as schema from '../../db/schema.js';
 
 type DrizzleDb = NodePgDatabase<typeof schema>;
 
+function sanitizeUuid(val?: string | null): string | null {
+  if (!val) return null;
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(val) ? val : null;
+}
+
 function buildDrizzleRegistry(db: DrizzleDb): IRepositoryRegistry {
   const tenants: ITenantRepository = {
     create: async (record) => {
@@ -114,7 +119,7 @@ function buildDrizzleRegistry(db: DrizzleDb): IRepositoryRegistry {
             webhookSecretHash: record.webhookSecretHash,
             cronExpression: record.cronExpression,
             cronNextRunAt: record.cronNextRunAt,
-            createdBy: record.createdBy,
+            createdBy: sanitizeUuid(record.createdBy),
             createdAt: record.createdAt,
             updatedAt: record.updatedAt,
           })
@@ -999,7 +1004,7 @@ function buildDrizzleRegistry(db: DrizzleDb): IRepositoryRegistry {
             iv: record.iv,
             authTag: record.authTag,
             ciphertext: record.ciphertext,
-            createdBy: record.createdBy,
+            createdBy: sanitizeUuid(record.createdBy),
             createdAt: record.createdAt,
             updatedAt: record.updatedAt,
           })

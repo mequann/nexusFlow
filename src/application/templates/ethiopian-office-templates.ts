@@ -15,12 +15,13 @@ export const MODEL_20_STORE_ISSUE_TEMPLATE: CreateWorkflowInput = {
   createdBy: 'system',
   definition: {
     intakeFormSchema: {
+      title: 'Model 20 Store Issue Voucher',
       fields: [
-        { id: 'requesterName', label: 'Requester Full Name (የጠያቂው ሙሉ ስም)', type: 'string', required: true },
-        { id: 'department', label: 'Department (ክፍል / ዳይሬክቶሬት)', type: 'string', required: true },
-        { id: 'purpose', label: 'Purpose of Requisition (የፍጆታው ምክንያት)', type: 'string', required: true },
-        { id: 'itemsRequested', label: 'Requested Items (የዕቃዎች ዝርዝር)', type: 'string', required: true },
-        { id: 'itemCount', label: 'Total Quantity of Items', type: 'number', required: true },
+        { name: 'requesterName', label: 'Requester Full Name (የጠያቂው ሙሉ ስም)', type: 'text', required: true },
+        { name: 'department', label: 'Department (ክፍል / ዳይሬክቶሬት)', type: 'text', required: true },
+        { name: 'purpose', label: 'Purpose of Requisition (የፍጆታው ምክንያት)', type: 'text', required: true },
+        { name: 'itemsRequested', label: 'Requested Items (የዕቃዎች ዝርዝር)', type: 'text', required: true },
+        { name: 'itemCount', label: 'Total Quantity of Items', type: 'number', required: false },
       ],
     },
     stages: ['SUBMITTED', 'DEPT_REVIEW', 'STORE_DISPATCH', 'COMPLETED'],
@@ -40,8 +41,8 @@ export const MODEL_20_STORE_ISSUE_TEMPLATE: CreateWorkflowInput = {
           dueInSeconds: 86400, // 24 hours
           taskSchema: {
             fields: [
-              { id: 'approvalDecision', label: 'Decision (ውሳኔ)', type: 'string', required: true },
-              { id: 'remarks', label: 'Remarks / Comments (አስተያየት)', type: 'string', required: false },
+              { name: 'approvalDecision', label: 'Decision (ውሳኔ)', type: 'text', required: true },
+              { name: 'remarks', label: 'Remarks / Comments (አስተያየት)', type: 'text', required: false },
             ],
           },
         },
@@ -55,8 +56,8 @@ export const MODEL_20_STORE_ISSUE_TEMPLATE: CreateWorkflowInput = {
           dueInSeconds: 172800, // 48 hours
           taskSchema: {
             fields: [
-              { id: 'issuedQuantity', label: 'Quantity Issued (የተሰጠ መጠን)', type: 'number', required: true },
-              { id: 'binCardNumber', label: 'Bin Card / Shelf Number (የካርድ ቁጥር)', type: 'string', required: true },
+              { name: 'issuedQuantity', label: 'Quantity Issued (የተሰጠ መጠን)', type: 'number', required: true },
+              { name: 'binCardNumber', label: 'Bin Card / Shelf Number (የካርድ ቁጥር)', type: 'text', required: true },
             ],
           },
         },
@@ -76,6 +77,11 @@ export const MODEL_20_STORE_ISSUE_TEMPLATE: CreateWorkflowInput = {
   },
 };
 
+export const ETHIOPIAN_STORE_MODEL_20_TEMPLATE: CreateWorkflowInput = {
+  ...MODEL_20_STORE_ISSUE_TEMPLATE,
+  key: 'ethiopian-store-model-20',
+};
+
 /**
  * 2. Field Mission & Per Diem Requisition (የስራ ጉዞ እና አበል ጥያቄ)
  * Governs employee travel authorizations and subsistence allowance calculations.
@@ -87,12 +93,13 @@ export const PER_DIEM_TRAVEL_TEMPLATE: CreateWorkflowInput = {
   createdBy: 'system',
   definition: {
     intakeFormSchema: {
+      title: 'Field Mission & Per Diem Requisition',
       fields: [
-        { id: 'travelerName', label: 'Traveler Name (የተጓዡ ስም)', type: 'string', required: true },
-        { id: 'destination', label: 'Destination / City (የጉዞው ቦታ)', type: 'string', required: true },
-        { id: 'missionObjective', label: 'Mission Objective (የስራው ዓላማ)', type: 'string', required: true },
-        { id: 'estimatedDays', label: 'Number of Days (የቀናት ብዛት)', type: 'number', required: true },
-        { id: 'estimatedPerDiemEtb', label: 'Total Estimated Per Diem (ETB)', type: 'number', required: true },
+        { name: 'travelerName', label: 'Traveler Name (የተጓዡ ስም)', type: 'text', required: true },
+        { name: 'destination', label: 'Destination / City (የጉዞው ቦታ)', type: 'text', required: true },
+        { name: 'missionObjective', label: 'Mission Objective (የስራው ዓላማ)', type: 'text', required: true },
+        { name: 'estimatedDays', label: 'Number of Days (የቀናት ብዛት)', type: 'number', required: false },
+        { name: 'estimatedPerDiemEtb', label: 'Total Estimated Per Diem (ETB)', type: 'number', required: true },
       ],
     },
     stages: ['REQUESTED', 'DIRECTOR_APPROVAL', 'AUDIT_VERIFICATION', 'DISBURSEMENT'],
@@ -112,7 +119,7 @@ export const PER_DIEM_TRAVEL_TEMPLATE: CreateWorkflowInput = {
           dueInSeconds: 86400,
           taskSchema: {
             fields: [
-              { id: 'directorDecision', label: 'Decision (ተፈቅዷል / አልተፈቀደም)', type: 'string', required: true },
+              { name: 'directorDecision', label: 'Decision (ተፈቅዷል / አልተፈቀደም)', type: 'text', required: true },
             ],
           },
         },
@@ -126,7 +133,7 @@ export const PER_DIEM_TRAVEL_TEMPLATE: CreateWorkflowInput = {
           dueInSeconds: 86400,
           taskSchema: {
             fields: [
-              { id: 'auditApprovedAmountEtb', label: 'Audit Approved Per Diem (ETB)', type: 'number', required: true },
+              { name: 'auditApprovedAmountEtb', label: 'Audit Approved Per Diem (ETB)', type: 'number', required: true },
             ],
           },
         },
@@ -144,4 +151,9 @@ export const PER_DIEM_TRAVEL_TEMPLATE: CreateWorkflowInput = {
       { id: 'te3', from: 'internal_audit_check', to: 'end_travel' },
     ],
   },
+};
+
+export const ETHIOPIAN_FIELD_MISSION_PER_DIEM_TEMPLATE: CreateWorkflowInput = {
+  ...PER_DIEM_TRAVEL_TEMPLATE,
+  key: 'ethiopian-field-mission-per-diem',
 };

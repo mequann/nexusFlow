@@ -72,28 +72,43 @@ import { AuthGuard } from './interfaces/http/guards/auth.guard.js';
 import { RateLimitGuard } from './interfaces/http/guards/rate-limit.guard.js';
 import { CorrelationMetricsInterceptor } from './interfaces/http/interceptors/correlation-metrics.interceptor.js';
 import { IdempotencyInterceptor } from './interfaces/http/interceptors/idempotency.interceptor.js';
+import { PROCUREMENT_CAPEX_TEMPLATE } from './application/templates/procurement-capex-template.js';
+import {
+  MODEL_20_STORE_ISSUE_TEMPLATE,
+  ETHIOPIAN_STORE_MODEL_20_TEMPLATE,
+  PER_DIEM_TRAVEL_TEMPLATE,
+  ETHIOPIAN_FIELD_MISSION_PER_DIEM_TEMPLATE,
+} from './application/templates/ethiopian-office-templates.js';
+import { getStarterTenantImportPayload } from './application/templates/tenant-workflow-template.js';
 
 export interface NexusFlowModuleOptions {
   configOverrides?: Record<string, string | undefined>;
   enableWorkers?: boolean;
   enableDefaultMetrics?: boolean;
+  enableStarterWorkflows?: boolean;
 }
 
 @Module({})
 export class NexusFlowModule implements OnModuleInit, OnModuleDestroy {
   constructor(
     @Inject(AuthService) private readonly authService: AuthService,
+    @Inject(WorkflowService) private readonly workflowService: WorkflowService,
+    @Inject(TenantWorkflowImporterService)
+    private readonly tenantWorkflowImporter: TenantWorkflowImporterService,
     @Inject(JobWorker) private readonly jobWorker: JobWorker,
     @Inject(SchedulerWorker) private readonly schedulerWorker: SchedulerWorker,
   ) {}
 
   private static startWorkersOnInit = true;
+  private static enableStarterWorkflowsOnInit = true;
   private static uowRef: IUnitOfWork | null = null;
 
   static register(options: NexusFlowModuleOptions = {}): DynamicModule {
     const config = loadConfig(options.configOverrides);
     NexusFlowModule.startWorkersOnInit =
       options.enableWorkers ?? config.ENABLE_EMBEDDED_WORKERS;
+    NexusFlowModule.enableStarterWorkflowsOnInit =
+      options.enableStarterWorkflows ?? true;
 
     const logger = new PinoLogger(config.LOG_LEVEL);
     const metrics = new PrometheusMetrics(options.enableDefaultMetrics ?? true);
@@ -209,9 +224,102 @@ export class NexusFlowModule implements OnModuleInit, OnModuleDestroy {
 
   async onModuleInit(): Promise<void> {
     await this.authService.bootstrapAdminIfEmpty();
+    if (NexusFlowModule.enableStarterWorkflowsOnInit) {
+      await this.bootstrapDefaultWorkflows();
+    }
     if (NexusFlowModule.startWorkersOnInit) {
       this.jobWorker.start();
       this.schedulerWorker.start();
+    }
+  }
+
+  private async bootstrapDefaultWorkflows(): Promise<void> {
+    const tenantId = 'default';
+
+    // 1. EmployeeMasterTransfer
+    try {
+      const existingTransfer = await this.workflowService.list({
+        key: 'EmployeeMasterTransfer',
+        tenantId,
+      });
+      if (existingTransfer.length === 0) {
+        const payload = getStarterTenantImportPayload();
+        for (const wf of payload.workflows) {
+          wf.status = 'Published';
+        }
+        await this.tenantWorkflowImporter.process(payload, tenantId, 'system');
+      } else {
+        const published = existingTransfer.find((w) => w.status === 'PUBLISHED');
+        if (!published && existingTransfer[0]) {
+          await this.workflowService.publishWorkflow(existingTransfer[0].id);
+        }
+      }
+    } catch (err: any) {
+      console.warn(`[Bootstrap] Warning initializing EmployeeMasterTransfer: ${err.message}`);
+    }
+
+    // 2. Procurement CapEx Approval
+    try {
+      const existingProc = await this.workflowService.list({
+        key: PROCUREMENT_CAPEX_TEMPLATE.key,
+        tenantId,
+      });
+      if (existingProc.length === 0) {
+        const created = await this.workflowService.createWorkflow({
+          ...PROCUREMENT_CAPEX_TEMPLATE,
+          tenantId,
+        });
+        await this.workflowService.publishWorkflow(created.id);
+      } else {
+        const published = existingProc.find((w) => w.status === 'PUBLISHED');
+        if (!published && existingProc[0]) {
+          await this.workflowService.publishWorkflow(existingProc[0].id);
+        }
+      }
+    } catch (err: any) {
+      console.warn(`[Bootstrap] Warning initializing ProcurementCapEx: ${err.message}`);
+    }
+
+    // 3. Ethiopian Model 20 Store Issue (both keys)
+    for (const template of [MODEL_20_STORE_ISSUE_TEMPLATE, ETHIOPIAN_STORE_MODEL_20_TEMPLATE]) {
+      try {
+        const existing = await this.workflowService.list({ key: template.key, tenantId });
+        if (existing.length === 0) {
+          const created = await this.workflowService.createWorkflow({
+            ...template,
+            tenantId,
+          });
+          await this.workflowService.publishWorkflow(created.id);
+        } else {
+          const published = existing.find((w) => w.status === 'PUBLISHED');
+          if (!published && existing[0]) {
+            await this.workflowService.publishWorkflow(existing[0].id);
+          }
+        }
+      } catch (err: any) {
+        console.warn(`[Bootstrap] Warning initializing ${template.key}: ${err.message}`);
+      }
+    }
+
+    // 4. Ethiopian Per Diem & Field Mission (both keys)
+    for (const template of [PER_DIEM_TRAVEL_TEMPLATE, ETHIOPIAN_FIELD_MISSION_PER_DIEM_TEMPLATE]) {
+      try {
+        const existing = await this.workflowService.list({ key: template.key, tenantId });
+        if (existing.length === 0) {
+          const created = await this.workflowService.createWorkflow({
+            ...template,
+            tenantId,
+          });
+          await this.workflowService.publishWorkflow(created.id);
+        } else {
+          const published = existing.find((w) => w.status === 'PUBLISHED');
+          if (!published && existing[0]) {
+            await this.workflowService.publishWorkflow(existing[0].id);
+          }
+        }
+      } catch (err: any) {
+        console.warn(`[Bootstrap] Warning initializing ${template.key}: ${err.message}`);
+      }
     }
   }
 

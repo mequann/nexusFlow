@@ -38,8 +38,14 @@ describe('Tenant Workflow Importer Subsystem (ቴነንት የስራ ፍሰት �
     await uow.close();
   });
 
+  const getTemplatePath = () => {
+    const localRepoPath = path.resolve(process.cwd(), 'src/application/templates/tenant-workflow-import-template.json');
+    if (fs.existsSync(localRepoPath)) return localRepoPath;
+    return path.resolve('C:/Users/mequanint.acham/Downloads/tenant-workflow-import-template (1).json');
+  };
+
   it('validates the official enterprise tenant workflow import template', () => {
-    const templatePath = path.resolve('C:/Users/mequanint.acham/Downloads/tenant-workflow-import-template (1).json');
+    const templatePath = getTemplatePath();
     const rawContent = fs.readFileSync(templatePath, 'utf8');
     const payload: TenantWorkflowImportPayload = JSON.parse(rawContent);
 
@@ -52,7 +58,7 @@ describe('Tenant Workflow Importer Subsystem (ቴነንት የስራ ፍሰት �
   });
 
   it('imports and converts the tenant template into an executable BPMN/Kissflow workflow', async () => {
-    const templatePath = path.resolve('C:/Users/mequanint.acham/Downloads/tenant-workflow-import-template (1).json');
+    const templatePath = getTemplatePath();
     const rawContent = fs.readFileSync(templatePath, 'utf8');
     const payload: TenantWorkflowImportPayload = JSON.parse(rawContent);
 

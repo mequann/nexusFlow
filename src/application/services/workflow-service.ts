@@ -50,7 +50,11 @@ export class WorkflowService {
       webhookSecretHash: input.webhookSecret ? sha256Hex(input.webhookSecret) : null,
       cronExpression,
       cronNextRunAt,
-      createdBy: input.createdBy,
+      createdBy:
+        typeof input.createdBy === 'string' &&
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(input.createdBy)
+          ? input.createdBy
+          : null,
       createdAt: now,
       updatedAt: now,
     };

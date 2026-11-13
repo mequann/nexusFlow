@@ -50,6 +50,7 @@ export function NormalUserPortal({
     targetLocation: 'Addis Ababa - Head Office',
     transferReason: 'Professional career development and internal vacancy transfer',
     proposedEffectiveDate: '2026-12-01',
+    transferType: 'Permanent',
   });
 
   const [model20Form, setModel20Form] = useState({
@@ -110,7 +111,12 @@ export function NormalUserPortal({
         'EmployeeMasterTransfer',
         {
           ...transferForm,
-          requestedBy: user?.email,
+          reason: transferForm.transferReason,
+          requestTitle: `Transfer: ${transferForm.employeeName} -> ${transferForm.targetDepartment}`,
+          targetDepartment: transferForm.targetDepartment,
+          effectiveDate: transferForm.proposedEffectiveDate,
+          transferType: transferForm.transferType || 'Permanent',
+          requestedBy: user?.email ?? 'user@nexusflow.local',
           submissionDate: new Date().toISOString(),
           currency: 'ETB',
         },
@@ -140,7 +146,10 @@ export function NormalUserPortal({
         'ethiopian-store-model-20',
         {
           ...model20Form,
-          requestedBy: user?.email,
+          requesterName: model20Form.requestorName,
+          itemsRequested: model20Form.items,
+          itemCount: 3,
+          requestedBy: user?.email ?? 'user@nexusflow.local',
           formType: 'MODEL_20_ISSUE_VOUCHER',
           submissionDate: new Date().toISOString(),
         },
@@ -170,7 +179,10 @@ export function NormalUserPortal({
         'ethiopian-field-mission-per-diem',
         {
           ...perDiemForm,
-          requestedBy: user?.email,
+          destination: perDiemForm.destinationCity,
+          missionObjective: perDiemForm.tripPurpose,
+          estimatedDays: 5,
+          requestedBy: user?.email ?? 'user@nexusflow.local',
           currency: 'ETB',
           submissionDate: new Date().toISOString(),
         },
@@ -555,15 +567,28 @@ export function NormalUserPortal({
                       />
                     </div>
                     <div>
-                      <label className="input-label">Proposed Effective Date</label>
-                      <input
-                        type="date"
+                      <label className="input-label">Transfer Type</label>
+                      <select
                         className="input"
-                        value={transferForm.proposedEffectiveDate}
-                        onChange={(e) => setTransferForm({ ...transferForm, proposedEffectiveDate: e.target.value })}
+                        value={transferForm.transferType}
+                        onChange={(e) => setTransferForm({ ...transferForm, transferType: e.target.value })}
                         required
-                      />
+                      >
+                        <option value="Permanent">Permanent (ቋሚ ዝውውር)</option>
+                        <option value="Temporary">Temporary (ጊዜያዊ ምደባ)</option>
+                      </select>
                     </div>
+                  </div>
+
+                  <div>
+                    <label className="input-label">Proposed Effective Date</label>
+                    <input
+                      type="date"
+                      className="input"
+                      value={transferForm.proposedEffectiveDate}
+                      onChange={(e) => setTransferForm({ ...transferForm, proposedEffectiveDate: e.target.value })}
+                      required
+                    />
                   </div>
 
                   <div>
