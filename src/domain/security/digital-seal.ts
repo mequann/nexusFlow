@@ -63,3 +63,4 @@ export class DigitalSealEngine {
     return regenerated.sealHash === expectedSealHash;
   }
 }
+

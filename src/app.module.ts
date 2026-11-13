@@ -20,6 +20,7 @@ import { NotificationService } from './application/services/notification-service
 import { TaskService } from './application/services/task-service.js';
 import { UserSyncService } from './application/services/user-sync-service.js';
 import { WorkflowService } from './application/services/workflow-service.js';
+import { TenantWorkflowImporterService } from './application/services/tenant-workflow-importer.service.js';
 import { CorrespondenceService } from './application/services/correspondence-service.js';
 import { TelegramBotService } from './application/services/telegram-bot-service.js';
 import {
@@ -56,6 +57,7 @@ import { NotificationsController } from './interfaces/http/controllers/notificat
 import { TasksController } from './interfaces/http/controllers/tasks.controller.js';
 import { WebhooksController } from './interfaces/http/controllers/webhooks.controller.js';
 import { WorkflowsController } from './interfaces/http/controllers/workflows.controller.js';
+import { WorkflowImportController } from './interfaces/http/controllers/workflow-import.controller.js';
 import {
   CorrespondenceController,
   PublicVerificationController,
@@ -121,6 +123,7 @@ export class NexusFlowModule implements OnModuleInit, OnModuleDestroy {
         HealthController,
         AuthController,
         WorkflowsController,
+        WorkflowImportController,
         InstancesController,
         TasksController,
         NotificationsController,
@@ -149,6 +152,7 @@ export class NexusFlowModule implements OnModuleInit, OnModuleDestroy {
         UserSyncService,
         NotificationService,
         WorkflowService,
+        TenantWorkflowImporterService,
         WorkflowEngine,
         TaskService,
         CaseService,
@@ -178,6 +182,7 @@ export class NexusFlowModule implements OnModuleInit, OnModuleDestroy {
         UserSyncService,
         NotificationService,
         WorkflowService,
+        TenantWorkflowImporterService,
         WorkflowEngine,
         TaskService,
         CaseService,

@@ -77,3 +77,4 @@ export interface ApproveAndSealInput {
   signatoryRole: string;
   baseUrl?: string;
 }
+
