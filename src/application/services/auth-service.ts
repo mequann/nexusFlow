@@ -18,6 +18,7 @@ export interface LoginResult {
   expiresInSeconds: number;
   user: {
     id: string;
+    tenantId: string;
     email: string;
     name: string;
     role: Role;
@@ -39,9 +40,23 @@ export class AuthService {
     const count = await this.uow.repos.users.count();
     if (count > 0) return;
 
+    // Ensure default tenant exists
+    const defaultTenant = await this.uow.repos.tenants.findById('default');
+    if (!defaultTenant) {
+      await this.uow.repos.tenants.create({
+        id: 'default',
+        name: 'Default Organization',
+        plan: 'ENTERPRISE',
+        isActive: true,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      });
+    }
+
     const now = new Date();
     await this.uow.repos.users.create({
       id: crypto.randomUUID(),
+      tenantId: 'default',
       email: this.config.BOOTSTRAP_ADMIN_EMAIL,
       name: 'Platform Admin',
       passwordHash: hashPassword(this.config.BOOTSTRAP_ADMIN_PASSWORD),
@@ -53,19 +68,22 @@ export class AuthService {
   }
 
   async registerUser(input: {
+    tenantId?: string;
     email: string;
     name: string;
     password: string;
     role: Role;
   }): Promise<Omit<UserRecord, 'passwordHash'>> {
-    const existing = await this.uow.repos.users.findByEmail(input.email);
+    const tenantId = input.tenantId ?? 'default';
+    const existing = await this.uow.repos.users.findByEmail(input.email, tenantId);
     if (existing) {
-      throw new ConflictError(`User '${input.email}' already exists`);
+      throw new ConflictError(`User '${input.email}' already exists in tenant '${tenantId}'`);
     }
 
     const now = new Date();
     const created = await this.uow.repos.users.create({
       id: crypto.randomUUID(),
+      tenantId,
       email: input.email.toLowerCase().trim(),
       name: input.name.trim(),
       passwordHash: hashPassword(input.password),
@@ -77,6 +95,7 @@ export class AuthService {
 
     return {
       id: created.id,
+      tenantId: created.tenantId,
       email: created.email,
       name: created.name,
       role: created.role,
@@ -86,14 +105,15 @@ export class AuthService {
     };
   }
 
-  async login(email: string, password: string): Promise<LoginResult> {
-    const user = await this.uow.repos.users.findByEmail(email);
+  async login(email: string, password: string, tenantId?: string): Promise<LoginResult> {
+    const user = await this.uow.repos.users.findByEmail(email, tenantId);
     if (!user || !user.isActive || !verifyPassword(password, user.passwordHash)) {
       throw new UnauthorizedError('Invalid email or password');
     }
 
     const expiresInSeconds = 3600;
     const accessToken = await new SignJWT({
+      tenantId: user.tenantId,
       email: user.email,
       role: user.role,
     })
@@ -111,6 +131,7 @@ export class AuthService {
       expiresInSeconds,
       user: {
         id: user.id,
+        tenantId: user.tenantId,
         email: user.email,
         name: user.name,
         role: user.role,
@@ -128,6 +149,7 @@ export class AuthService {
         throw new UnauthorizedError('Malformed JWT claims');
       }
       return {
+        tenantId: (payload.tenantId as string) || 'default',
         userId: payload.sub,
         email: String(payload.email),
         role: payload.role as Role,
@@ -139,6 +161,7 @@ export class AuthService {
   }
 
   async createApiKey(input: {
+    tenantId?: string;
     userId: string;
     name: string;
     role: Role;
@@ -151,6 +174,7 @@ export class AuthService {
 
     const record = await this.uow.repos.users.createApiKey({
       id: crypto.randomUUID(),
+      tenantId: input.tenantId ?? 'default',
       userId: input.userId,
       name: input.name,
       keyPrefix,
@@ -186,6 +210,7 @@ export class AuthService {
 
     await this.uow.repos.users.touchApiKey(apiKey.id, new Date());
     return {
+      tenantId: user.tenantId ?? apiKey.tenantId ?? 'default',
       userId: user.id,
       email: user.email,
       role: apiKey.role,

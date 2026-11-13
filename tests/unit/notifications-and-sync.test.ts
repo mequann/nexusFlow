@@ -79,3 +79,4 @@ describe('Enterprise Notifications and User Sync Service', () => {
     expect(lead?.department).toBe('Engineering');
   });
 });
+

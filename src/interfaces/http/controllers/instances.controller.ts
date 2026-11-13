@@ -80,6 +80,7 @@ export class InstancesController {
   ) {
     const isGlobalAdmin = principal.role === 'ADMIN';
     const items = await this.uow.repos.instances.list({
+      tenantId: principal.tenantId,
       status,
       workflowKey,
       startedBy: isGlobalAdmin ? undefined : principal.userId,
@@ -97,6 +98,9 @@ export class InstancesController {
   async getById(@Param('id') id: string, @CurrentPrincipal() principal: AuthPrincipal) {
     const instance = await this.uow.repos.instances.findById(id);
     if (!instance) throw new NotFoundError('WorkflowInstance', id);
+    if (principal.role !== 'ADMIN' && instance.tenantId !== principal.tenantId) {
+      throw new ForbiddenError('You do not have access to view this workflow instance');
+    }
     if (principal.role !== 'ADMIN' && instance.startedBy && instance.startedBy !== principal.userId) {
       throw new ForbiddenError('You do not have access to view this workflow instance');
     }
@@ -114,6 +118,9 @@ export class InstancesController {
   async getTrace(@Param('id') id: string, @CurrentPrincipal() principal: AuthPrincipal) {
     const instance = await this.uow.repos.instances.findById(id);
     if (!instance) throw new NotFoundError('WorkflowInstance', id);
+    if (principal.role !== 'ADMIN' && instance.tenantId !== principal.tenantId) {
+      throw new ForbiddenError('You do not have access to view this workflow instance trace');
+    }
     if (principal.role !== 'ADMIN' && instance.startedBy && instance.startedBy !== principal.userId) {
       throw new ForbiddenError('You do not have access to view this workflow instance trace');
     }

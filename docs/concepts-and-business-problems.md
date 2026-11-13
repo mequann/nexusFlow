@@ -74,10 +74,12 @@ This document breaks down the specific conceptual models adopted from each syste
 - **NexusFlow Solution**: Automated Kissflow-inspired SLA trackers monitor task age. When a deadline nears, warning notifications fire. If breached, NexusFlow automatically reassigns the task to the designated backup or escalates to the executive's line manager.
 
 ### Problem 4: Security Vulnerabilities & Cross-Tenant Data Leakage
-- **The Reality**: When organizations build internal workflow tools, developers frequently forget row-level authorization. An employee in Marketing can view HR payroll approval requests simply by altering the ID in the URL.
-- **NexusFlow Solution**: Hardened user-scoped data access. Unless a user possesses the global `ADMIN` role, workflow queries enforce strict predicate checks:
-  $$\text{Query Filter} = (\text{startedBy} = \text{userId}) \lor (\text{assignee} = \text{userId}) \lor (\text{candidateGroup} \cap \text{user.groups} \neq \emptyset)$$
-  This guarantees cross-tenant and inter-departmental isolation by design.
+- **The Reality**: When organizations build internal workflow tools, developers frequently forget row-level authorization. An employee in Marketing can view HR payroll approval requests simply by altering the ID in the URL. Even worse, in multi-tenant SaaS environments, Tenant A might accidentally overwrite or view Tenant B's workflows and tasks.
+- **NexusFlow Solution**: Hardened multi-tenant, user-scoped data partitioning:
+  1. **Strict Multi-Tenant Row Partitioning**: All database entities (`workflows`, `workflow_instances`, `user_tasks`, `notifications`, `credentials`, `users`, `api_keys`) carry an explicit `tenant_id`. Composite unique indexes (`tenant_id, key, version`) ensure Tenant A and Tenant B can independently define completely different workflows with the same key (`capex-approval`, `procurement`) without namespace collision.
+  2. **Row-Level Access Predicates**: Unless a user possesses the global `ADMIN` role, workflow queries enforce strict predicate checks:
+     $$\text{Query Filter} = (\text{tenantId} = \text{principal.tenantId}) \land \Big((\text{startedBy} = \text{userId}) \lor (\text{assignee} = \text{userId}) \lor (\text{candidateGroup} \cap \text{user.groups} \neq \emptyset)\Big)$$
+     This guarantees cross-tenant and inter-departmental isolation by design.
 
 ---
 
@@ -178,3 +180,4 @@ To prevent lock contention and sequential table scans during high-throughput orc
 3. **Resilient Transactional Outbox**:
    - Avoids distributed transaction failures across messaging queues. State changes and outbound events are written to the database atomically in the same ACID commit.
    - Dedicated outbox relay processes ensure guaranteed *at-least-once* delivery to downstream message brokers (Kafka, RabbitMQ, SQS).
+

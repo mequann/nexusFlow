@@ -18,6 +18,7 @@ export class TaskService {
     candidateGroups?: string[];
     userOrGroups?: { userId: string; groups: string[] };
     instanceId?: string;
+    tenantId?: string;
   }): Promise<UserTask[]> {
     return this.uow.repos.userTasks.list(filters);
   }
@@ -83,6 +84,7 @@ export class TaskService {
 
       await repos.notifications.create({
         id: crypto.randomUUID(),
+        tenantId: task.tenantId,
         recipientId: toAssignee,
         recipientGroup: null,
         title: `Task Delegated: ${task.title}`,
@@ -256,6 +258,7 @@ export class TaskService {
         if (freshTask.escalateTo) {
           await repos.notifications.create({
             id: crypto.randomUUID(),
+            tenantId: freshTask.tenantId,
             recipientId: freshTask.escalateTo,
             recipientGroup: null,
             title: `Task Escalated: ${freshTask.title}`,

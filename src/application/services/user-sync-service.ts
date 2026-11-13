@@ -6,6 +6,7 @@ import { hashPassword } from '../../infrastructure/security/password.js';
 import { UNIT_OF_WORK } from '../tokens.js';
 
 export interface ExternalUserInput {
+  tenantId?: string;
   email: string;
   name: string;
   role?: Role;
@@ -43,8 +44,9 @@ export class UserSyncService {
 
     // First pass: upsert all user accounts
     for (const input of inputs) {
+      const tenantId = input.tenantId ?? 'default';
       try {
-        const existing = await this.uow.repos.users.findByEmail(input.email);
+        const existing = await this.uow.repos.users.findByEmail(input.email, tenantId);
         const now = new Date();
 
         if (existing) {
@@ -63,6 +65,7 @@ export class UserSyncService {
           const tempPassword = crypto.randomBytes(16).toString('hex');
           const newUser: UserRecord = {
             id: crypto.randomUUID(),
+            tenantId,
             email: input.email.toLowerCase(),
             name: input.name,
             passwordHash: hashPassword(tempPassword),
@@ -90,9 +93,10 @@ export class UserSyncService {
     // Second pass: resolve manager hierarchy links
     for (const input of inputs) {
       if (!input.managerEmail) continue;
+      const tenantId = input.tenantId ?? 'default';
       try {
-        const user = await this.uow.repos.users.findByEmail(input.email);
-        const manager = await this.uow.repos.users.findByEmail(input.managerEmail);
+        const user = await this.uow.repos.users.findByEmail(input.email, tenantId);
+        const manager = await this.uow.repos.users.findByEmail(input.managerEmail, tenantId);
         if (user && manager && user.managerId !== manager.id) {
           await this.uow.repos.users.update({
             ...user,
@@ -111,3 +115,4 @@ export class UserSyncService {
     return result;
   }
 }
+

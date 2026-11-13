@@ -14,19 +14,26 @@ import type {
   UserTaskStatus,
   WorkflowInstance,
 } from '../execution/types.js';
-import type { ApiKeyRecord, CredentialRecord, UserRecord } from '../security/types.js';
+import type { ApiKeyRecord, CredentialRecord, TenantRecord, UserRecord } from '../security/types.js';
 import type { WorkflowDefinitionRecord, WorkflowStatus } from '../workflow/types.js';
+
+export interface ITenantRepository {
+  create(record: TenantRecord): Promise<TenantRecord>;
+  findById(id: string): Promise<TenantRecord | null>;
+  list(): Promise<TenantRecord[]>;
+  update(record: TenantRecord): Promise<TenantRecord>;
+}
 
 export interface IWorkflowRepository {
   create(record: WorkflowDefinitionRecord): Promise<WorkflowDefinitionRecord>;
   findById(id: string): Promise<WorkflowDefinitionRecord | null>;
-  findLatestByKey(key: string, status?: WorkflowStatus): Promise<WorkflowDefinitionRecord | null>;
-  findByKeyAndVersion(key: string, version: number): Promise<WorkflowDefinitionRecord | null>;
-  findByWebhookPath(path: string): Promise<WorkflowDefinitionRecord | null>;
+  findLatestByKey(key: string, status?: WorkflowStatus, tenantId?: string): Promise<WorkflowDefinitionRecord | null>;
+  findByKeyAndVersion(key: string, version: number, tenantId?: string): Promise<WorkflowDefinitionRecord | null>;
+  findByWebhookPath(path: string, tenantId?: string): Promise<WorkflowDefinitionRecord | null>;
   findDueCronWorkflows(now: Date): Promise<WorkflowDefinitionRecord[]>;
-  list(filters?: { status?: WorkflowStatus; key?: string }): Promise<WorkflowDefinitionRecord[]>;
+  list(filters?: { status?: WorkflowStatus; key?: string; tenantId?: string }): Promise<WorkflowDefinitionRecord[]>;
   update(record: WorkflowDefinitionRecord): Promise<WorkflowDefinitionRecord>;
-  getNextVersion(key: string): Promise<number>;
+  getNextVersion(key: string, tenantId?: string): Promise<number>;
 }
 
 export interface IInstanceRepository {
@@ -37,6 +44,7 @@ export interface IInstanceRepository {
     status?: InstanceStatus;
     workflowKey?: string;
     startedBy?: string;
+    tenantId?: string;
     limit?: number;
   }): Promise<WorkflowInstance[]>;
   updateWithOcc(instance: WorkflowInstance): Promise<WorkflowInstance>;
@@ -67,6 +75,7 @@ export interface IUserTaskRepository {
     candidateGroups?: string[];
     userOrGroups?: { userId: string; groups: string[] };
     instanceId?: string;
+    tenantId?: string;
   }): Promise<UserTask[]>;
   findOverdueTasks(now: Date, limit?: number): Promise<UserTask[]>;
   update(task: UserTask): Promise<UserTask>;
@@ -123,8 +132,8 @@ export interface IOutboxRepository {
 export interface ICredentialRepository {
   create(record: CredentialRecord): Promise<CredentialRecord>;
   findById(id: string): Promise<CredentialRecord | null>;
-  findByName(name: string): Promise<CredentialRecord | null>;
-  list(): Promise<CredentialRecord[]>;
+  findByName(name: string, tenantId?: string): Promise<CredentialRecord | null>;
+  list(filters?: { tenantId?: string }): Promise<CredentialRecord[]>;
   update(record: CredentialRecord): Promise<CredentialRecord>;
   delete(id: string): Promise<void>;
 }
@@ -136,19 +145,20 @@ export interface INotificationRepository {
     recipientId?: string;
     recipientGroup?: string;
     recipientOrGroup?: { recipientId: string; groups: string[] };
+    tenantId?: string;
     read?: boolean;
     limit?: number;
   }): Promise<NotificationRecord[]>;
   markAsRead(id: string, readAt: Date): Promise<void>;
-  markAllAsRead(recipientId: string, readAt: Date): Promise<void>;
+  markAllAsRead(recipientId: string, readAt: Date, tenantId?: string): Promise<void>;
 }
 
 export interface IUserRepository {
   create(user: UserRecord): Promise<UserRecord>;
   findById(id: string): Promise<UserRecord | null>;
-  findByEmail(email: string): Promise<UserRecord | null>;
-  list(filters?: { department?: string; isActive?: boolean }): Promise<UserRecord[]>;
-  count(): Promise<number>;
+  findByEmail(email: string, tenantId?: string): Promise<UserRecord | null>;
+  list(filters?: { department?: string; isActive?: boolean; tenantId?: string }): Promise<UserRecord[]>;
+  count(tenantId?: string): Promise<number>;
   createApiKey(apiKey: ApiKeyRecord): Promise<ApiKeyRecord>;
   findApiKeyByHash(keyHash: string): Promise<ApiKeyRecord | null>;
   touchApiKey(id: string, usedAt: Date): Promise<void>;
@@ -171,6 +181,7 @@ export interface IIdempotencyRepository {
 }
 
 export interface IRepositoryRegistry {
+  tenants: ITenantRepository;
   workflows: IWorkflowRepository;
   instances: IInstanceRepository;
   tokens: ITokenRepository;

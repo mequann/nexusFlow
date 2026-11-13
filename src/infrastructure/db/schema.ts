@@ -13,8 +13,18 @@ import {
 import type { TaskApprovalVote } from '../../domain/execution/types.js';
 import type { WorkflowGraphDefinition } from '../../domain/workflow/types.js';
 
+export const tenants = pgTable('tenants', {
+  id: text('id').primaryKey(),
+  name: text('name').notNull(),
+  plan: text('plan').notNull().default('ENTERPRISE'),
+  isActive: boolean('is_active').notNull().default(true),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
 export const users = pgTable('users', {
   id: uuid('id').primaryKey(),
+  tenantId: text('tenant_id').notNull().default('default').references(() => tenants.id, { onDelete: 'cascade' }),
   email: text('email').notNull().unique(),
   name: text('name').notNull(),
   passwordHash: text('password_hash').notNull(),
@@ -30,6 +40,7 @@ export const users = pgTable('users', {
 
 export const apiKeys = pgTable('api_keys', {
   id: uuid('id').primaryKey(),
+  tenantId: text('tenant_id').notNull().default('default').references(() => tenants.id, { onDelete: 'cascade' }),
   userId: uuid('user_id')
     .notNull()
     .references(() => users.id, { onDelete: 'cascade' }),
@@ -44,6 +55,7 @@ export const apiKeys = pgTable('api_keys', {
 
 export const credentials = pgTable('credentials', {
   id: uuid('id').primaryKey(),
+  tenantId: text('tenant_id').notNull().default('default').references(() => tenants.id, { onDelete: 'cascade' }),
   name: text('name').notNull().unique(),
   type: text('type').notNull(),
   keyId: text('key_id').notNull(),
@@ -59,6 +71,7 @@ export const workflows = pgTable(
   'workflows',
   {
     id: uuid('id').primaryKey(),
+    tenantId: text('tenant_id').notNull().default('default').references(() => tenants.id, { onDelete: 'cascade' }),
     key: text('key').notNull(),
     name: text('name').notNull(),
     description: text('description').notNull().default(''),
@@ -80,6 +93,7 @@ export const workflowInstances = pgTable(
   'workflow_instances',
   {
     id: uuid('id').primaryKey(),
+    tenantId: text('tenant_id').notNull().default('default').references(() => tenants.id, { onDelete: 'cascade' }),
     workflowId: uuid('workflow_id')
       .notNull()
       .references(() => workflows.id),
@@ -153,6 +167,7 @@ export const userTasks = pgTable(
   'user_tasks',
   {
     id: uuid('id').primaryKey(),
+    tenantId: text('tenant_id').notNull().default('default').references(() => tenants.id, { onDelete: 'cascade' }),
     instanceId: uuid('instance_id')
       .notNull()
       .references(() => workflowInstances.id, { onDelete: 'cascade' }),
@@ -325,6 +340,7 @@ export const notifications = pgTable(
   'notifications',
   {
     id: uuid('id').primaryKey(),
+    tenantId: text('tenant_id').notNull().default('default').references(() => tenants.id, { onDelete: 'cascade' }),
     recipientId: text('recipient_id').notNull(),
     recipientGroup: text('recipient_group'),
     title: text('title').notNull(),

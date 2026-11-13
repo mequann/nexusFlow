@@ -37,7 +37,8 @@ src/
    - Multi-worker job claiming via `.for('update', { skipLocked: true })` and `workflow_instances.occ_version` checks.
 3. **Transactional Outbox Pattern**
    - Domain mutations and `outbox_events` inserts commit in one ACID Drizzle transaction and are relayed asynchronously by `SchedulerWorker`.
-4. **Defense-in-Depth Security**
-   - JWT + SHA-256 hashed API keys (`nxf_...`) with 4-role RBAC (`ADMIN`, `BUILDER`, `OPERATOR`, `VIEWER`).
-   - AES-256-GCM Credential Vault with key rotation (`VAULT_MASTER_KEY_V1` / `V2`).
+4. **Defense-in-Depth Security & Multi-Tenancy**
+   - **Enterprise Multi-Tenancy**: Native `tenant_id` partitioning across all core tables (`tenants`, `workflows`, `workflow_instances`, `user_tasks`, `notifications`, `credentials`, `users`, `api_keys`). Tenants have completely isolated workflow definitions (composite unique constraint `(tenant_id, key, version)`), independent instances, and isolated credentials.
+   - JWT + SHA-256 hashed API keys (`nxf_...`) with 4-role RBAC (`ADMIN`, `BUILDER`, `OPERATOR`, `VIEWER`), carrying embedded `tenantId`.
+   - AES-256-GCM Credential Vault with key rotation (`VAULT_MASTER_KEY_V1` / `V2`) scoped by tenant.
    - SSRF Guard blocking loopback, RFC1918 private networks, IPv6 ULA, and cloud metadata (`169.254.169.254`).

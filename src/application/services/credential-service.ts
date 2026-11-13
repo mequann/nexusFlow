@@ -7,6 +7,7 @@ import type { CredentialRecord } from '../../domain/security/types.js';
 import { CREDENTIAL_VAULT, UNIT_OF_WORK } from '../tokens.js';
 
 export interface CreateCredentialInput {
+  tenantId?: string;
   name: string;
   type: CredentialRecord['type'];
   secretData: Record<string, unknown>;
@@ -34,6 +35,7 @@ export class CredentialService {
     const now = new Date();
     const record: CredentialRecord = {
       id: crypto.randomUUID(),
+      tenantId: input.tenantId ?? 'default',
       name: input.name,
       type: input.type,
       keyId: encrypted.keyId,
@@ -49,16 +51,16 @@ export class CredentialService {
     return this.mask(saved);
   }
 
-  async listCredentials(): Promise<MaskedCredentialView[]> {
-    const all = await this.uow.repos.credentials.list();
+  async listCredentials(tenantId?: string): Promise<MaskedCredentialView[]> {
+    const all = await this.uow.repos.credentials.list(tenantId ? { tenantId } : undefined);
     return all.map((c) => this.mask(c));
   }
 
-  async getDecryptedSecretByName(name: string): Promise<{
+  async getDecryptedSecretByName(name: string, tenantId?: string): Promise<{
     type: CredentialRecord['type'];
     data: Record<string, unknown>;
   }> {
-    const record = await this.uow.repos.credentials.findByName(name);
+    const record = await this.uow.repos.credentials.findByName(name, tenantId);
     if (!record) {
       throw new NotFoundError('Credential', name);
     }

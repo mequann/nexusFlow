@@ -36,6 +36,7 @@ export class NotificationsController {
     const isRead = read === undefined ? undefined : read === 'true';
     const groups = [principal.email, principal.role.toLowerCase()];
     const items = await this.notificationService.listForUser(principal.userId, groups, {
+      tenantId: principal.tenantId,
       read: isRead,
       limit: limit ? Number(limit) : 50,
     });
@@ -56,6 +57,7 @@ export class NotificationsController {
   @RequirePermission('task:read')
   @ApiOperation({ summary: 'Mark all notifications as read for current user' })
   async markAllRead(@CurrentPrincipal() principal: AuthPrincipal) {
-    await this.notificationService.markAllAsRead(principal.userId);
+    await this.notificationService.markAllAsRead(principal.userId, principal.tenantId);
   }
 }
+

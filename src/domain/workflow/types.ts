@@ -75,6 +75,7 @@ export type WorkflowStatus = 'DRAFT' | 'PUBLISHED' | 'ARCHIVED';
 
 export interface WorkflowDefinitionRecord {
   id: string;
+  tenantId: string;
   key: string;
   name: string;
   description: string;

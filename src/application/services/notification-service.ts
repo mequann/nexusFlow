@@ -5,6 +5,7 @@ import type { IUnitOfWork } from '../../domain/ports/repositories.js';
 import { UNIT_OF_WORK } from '../tokens.js';
 
 export interface SendNotificationInput {
+  tenantId?: string;
   recipientId: string;
   recipientGroup?: string | null;
   title: string;
@@ -27,6 +28,7 @@ export class NotificationService {
   async notify(input: SendNotificationInput): Promise<NotificationRecord> {
     const notification: NotificationRecord = {
       id: crypto.randomUUID(),
+      tenantId: input.tenantId ?? 'default',
       recipientId: input.recipientId,
       recipientGroup: input.recipientGroup ?? null,
       title: input.title,
@@ -55,9 +57,10 @@ export class NotificationService {
   async listForUser(
     userId: string,
     groups: string[] = [],
-    options?: { read?: boolean; limit?: number },
+    options?: { tenantId?: string; read?: boolean; limit?: number },
   ): Promise<NotificationRecord[]> {
     return this.uow.repos.notifications.list({
+      tenantId: options?.tenantId,
       recipientOrGroup: { recipientId: userId, groups },
       read: options?.read,
       limit: options?.limit ?? 50,
@@ -68,7 +71,8 @@ export class NotificationService {
     await this.uow.repos.notifications.markAsRead(id, new Date());
   }
 
-  async markAllAsRead(recipientId: string): Promise<void> {
-    await this.uow.repos.notifications.markAllAsRead(recipientId, new Date());
+  async markAllAsRead(recipientId: string, tenantId?: string): Promise<void> {
+    await this.uow.repos.notifications.markAllAsRead(recipientId, new Date(), tenantId);
   }
 }
+

@@ -13,6 +13,7 @@ import { sha256Hex } from '../../infrastructure/security/password.js';
 import { UNIT_OF_WORK } from '../tokens.js';
 
 export interface CreateWorkflowInput {
+  tenantId?: string;
   key: string;
   name: string;
   description?: string;
@@ -32,11 +33,13 @@ export class WorkflowService {
       input.definition,
     );
 
+    const tenantId = input.tenantId ?? 'default';
     const now = new Date();
-    const version = await this.uow.repos.workflows.getNextVersion(input.key);
+    const version = await this.uow.repos.workflows.getNextVersion(input.key, tenantId);
 
     const record: WorkflowDefinitionRecord = {
       id: crypto.randomUUID(),
+      tenantId,
       key: input.key,
       name: input.name,
       description: input.description ?? '',
@@ -104,8 +107,12 @@ export class WorkflowService {
 
       validateWorkflowGraph(target.definition);
 
-      // Archive previously published versions of the same key
-      const existingAll = await repos.workflows.list({ key: target.key, status: 'PUBLISHED' });
+      // Archive previously published versions of the same key in this tenant
+      const existingAll = await repos.workflows.list({
+        key: target.key,
+        status: 'PUBLISHED',
+        tenantId: target.tenantId,
+      });
       for (const prev of existingAll) {
         if (prev.id !== target.id) {
           await repos.workflows.update({
@@ -137,7 +144,11 @@ export class WorkflowService {
     return found;
   }
 
-  async list(filters?: { status?: WorkflowStatus; key?: string }): Promise<WorkflowDefinitionRecord[]> {
+  async list(filters?: {
+    status?: WorkflowStatus;
+    key?: string;
+    tenantId?: string;
+  }): Promise<WorkflowDefinitionRecord[]> {
     return this.uow.repos.workflows.list(filters);
   }
 

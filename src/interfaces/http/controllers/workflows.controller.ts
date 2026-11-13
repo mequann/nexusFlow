@@ -135,6 +135,7 @@ export class WorkflowsController {
   ) {
     const validated = body as z.infer<typeof CreateWorkflowSchema>;
     return this.workflowService.createWorkflow({
+      tenantId: principal.tenantId,
       key: validated.key,
       name: validated.name,
       description: validated.description,
@@ -151,8 +152,16 @@ export class WorkflowsController {
   @ApiQuery({ name: 'key', required: false, example: 'procurement-capex-approval' })
   @ApiOkResponse({ description: 'List of workflow definitions', type: WorkflowListResponseDto })
   @ApiUnauthorizedResponse({ description: 'Unauthorized', type: ErrorResponseDto })
-  async list(@Query('status') status?: WorkflowStatus, @Query('key') key?: string) {
-    const items = await this.workflowService.list({ status, key });
+  async list(
+    @CurrentPrincipal() principal: AuthPrincipal,
+    @Query('status') status?: WorkflowStatus,
+    @Query('key') key?: string,
+  ) {
+    const items = await this.workflowService.list({
+      status,
+      key,
+      tenantId: principal.tenantId,
+    });
     return { items };
   }
 
@@ -218,6 +227,7 @@ export class WorkflowsController {
   ) {
     const validated = body as z.infer<typeof StartInstanceSchema>;
     return this.engine.startInstance({
+      tenantId: principal.tenantId,
       workflowKey: key,
       version: validated.version,
       triggerPayload: validated.payload,

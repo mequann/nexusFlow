@@ -25,6 +25,7 @@ import type {
   IRepositoryRegistry,
   IStepRepository,
   ISubscriptionRepository,
+  ITenantRepository,
   ITokenRepository,
   IUnitOfWork,
   IUserRepository,
@@ -32,7 +33,7 @@ import type {
   IWorkflowRepository,
   IdempotencyRecord,
 } from '../../../domain/ports/repositories.js';
-import type { ApiKeyRecord, CredentialRecord, UserRecord } from '../../../domain/security/types.js';
+import type { ApiKeyRecord, CredentialRecord, TenantRecord, UserRecord } from '../../../domain/security/types.js';
 import type { WorkflowDefinitionRecord } from '../../../domain/workflow/types.js';
 
 function clone<T>(obj: T): T {
@@ -40,6 +41,7 @@ function clone<T>(obj: T): T {
 }
 
 export class MemoryUnitOfWork implements IUnitOfWork {
+  private readonly tenantsMap = new Map<string, TenantRecord>();
   private readonly workflowsMap = new Map<string, WorkflowDefinitionRecord>();
   private readonly instancesMap = new Map<string, WorkflowInstance>();
   private readonly tokensMap = new Map<string, ExecutionToken>();
@@ -79,11 +81,36 @@ export class MemoryUnitOfWork implements IUnitOfWork {
   }
 
   private createRegistry(): IRepositoryRegistry {
+    const tenants: ITenantRepository = {
+      create: async (record) => {
+        const saved = clone(record);
+        this.tenantsMap.set(saved.id, saved);
+        return clone(saved);
+      },
+      findById: async (id) => {
+        const found = this.tenantsMap.get(id);
+        return found ? clone(found) : null;
+      },
+      list: async () => [...this.tenantsMap.values()].map(clone),
+      update: async (record) => {
+        if (!this.tenantsMap.has(record.id)) throw new NotFoundError('Tenant', record.id);
+        const saved = clone(record);
+        this.tenantsMap.set(saved.id, saved);
+        return clone(saved);
+      },
+    };
+
     const workflows: IWorkflowRepository = {
       create: async (record) => {
         for (const existing of this.workflowsMap.values()) {
-          if (existing.key === record.key && existing.version === record.version) {
-            throw new ConflictError(`Workflow '${record.key}' v${record.version} already exists`);
+          if (
+            existing.tenantId === record.tenantId &&
+            existing.key === record.key &&
+            existing.version === record.version
+          ) {
+            throw new ConflictError(
+              `Workflow '${record.key}' v${record.version} already exists in tenant '${record.tenantId}'`,
+            );
           }
         }
         const saved = clone(record);
@@ -94,21 +121,30 @@ export class MemoryUnitOfWork implements IUnitOfWork {
         const found = this.workflowsMap.get(id);
         return found ? clone(found) : null;
       },
-      findLatestByKey: async (key, status) => {
+      findLatestByKey: async (key, status, tenantId) => {
         const matches = [...this.workflowsMap.values()]
-          .filter((w) => w.key === key && (!status || w.status === status))
+          .filter((w) => {
+            if (tenantId && w.tenantId !== tenantId) return false;
+            if (w.key !== key) return false;
+            if (status && w.status !== status) return false;
+            return true;
+          })
           .sort((a, b) => b.version - a.version);
         return matches[0] ? clone(matches[0]) : null;
       },
-      findByKeyAndVersion: async (key, version) => {
+      findByKeyAndVersion: async (key, version, tenantId) => {
         for (const w of this.workflowsMap.values()) {
+          if (tenantId && w.tenantId !== tenantId) continue;
           if (w.key === key && w.version === version) return clone(w);
         }
         return null;
       },
-      findByWebhookPath: async (webhookPath) => {
+      findByWebhookPath: async (webhookPath, tenantId) => {
         const matches = [...this.workflowsMap.values()]
-          .filter((w) => w.status === 'PUBLISHED' && w.webhookPath === webhookPath)
+          .filter((w) => {
+            if (tenantId && w.tenantId !== tenantId) return false;
+            return w.status === 'PUBLISHED' && w.webhookPath === webhookPath;
+          })
           .sort((a, b) => b.version - a.version);
         return matches[0] ? clone(matches[0]) : null;
       },
@@ -126,6 +162,7 @@ export class MemoryUnitOfWork implements IUnitOfWork {
       list: async (filters) => {
         return [...this.workflowsMap.values()]
           .filter((w) => {
+            if (filters?.tenantId && w.tenantId !== filters.tenantId) return false;
             if (filters?.status && w.status !== filters.status) return false;
             if (filters?.key && w.key !== filters.key) return false;
             return true;
@@ -141,9 +178,10 @@ export class MemoryUnitOfWork implements IUnitOfWork {
         this.workflowsMap.set(saved.id, saved);
         return clone(saved);
       },
-      getNextVersion: async (key) => {
+      getNextVersion: async (key, tenantId) => {
         let max = 0;
         for (const w of this.workflowsMap.values()) {
+          if (tenantId && w.tenantId !== tenantId) continue;
           if (w.key === key && w.version > max) max = w.version;
         }
         return max + 1;
@@ -167,6 +205,7 @@ export class MemoryUnitOfWork implements IUnitOfWork {
       list: async (filters) => {
         const list = [...this.instancesMap.values()]
           .filter((i) => {
+            if (filters?.tenantId && i.tenantId !== filters.tenantId) return false;
             if (filters?.status && i.status !== filters.status) return false;
             if (filters?.workflowKey && i.workflowKey !== filters.workflowKey) return false;
             if (filters?.startedBy && i.startedBy !== filters.startedBy) return false;
@@ -265,6 +304,7 @@ export class MemoryUnitOfWork implements IUnitOfWork {
       list: async (filters) => {
         return [...this.userTasksMap.values()]
           .filter((t) => {
+            if (filters?.tenantId && t.tenantId !== filters.tenantId) return false;
             if (filters?.status && t.status !== filters.status) return false;
             if (filters?.assignee && t.assignee !== filters.assignee) return false;
             if (filters?.candidateGroup && t.candidateGroup !== filters.candidateGroup) return false;
@@ -321,6 +361,7 @@ export class MemoryUnitOfWork implements IUnitOfWork {
       list: async (filters) => {
         return [...this.notificationsMap.values()]
           .filter((n) => {
+            if (filters.tenantId && n.tenantId !== filters.tenantId) return false;
             if (filters.read !== undefined && n.read !== filters.read) return false;
             if (filters.recipientId && n.recipientId !== filters.recipientId) return false;
             if (filters.recipientGroup && n.recipientGroup !== filters.recipientGroup) return false;
@@ -343,8 +384,9 @@ export class MemoryUnitOfWork implements IUnitOfWork {
           n.readAt = readAt;
         }
       },
-      markAllAsRead: async (recipientId, readAt) => {
+      markAllAsRead: async (recipientId, readAt, tenantId) => {
         for (const n of this.notificationsMap.values()) {
+          if (tenantId && n.tenantId !== tenantId) continue;
           if (n.recipientId === recipientId && !n.read) {
             n.read = true;
             n.readAt = readAt;
@@ -574,13 +616,18 @@ export class MemoryUnitOfWork implements IUnitOfWork {
         const found = this.credentialsMap.get(id);
         return found ? clone(found) : null;
       },
-      findByName: async (name) => {
+      findByName: async (name, tenantId) => {
         for (const c of this.credentialsMap.values()) {
+          if (tenantId && c.tenantId !== tenantId) continue;
           if (c.name === name) return clone(c);
         }
         return null;
       },
-      list: async () => [...this.credentialsMap.values()].map(clone),
+      list: async (filters) => {
+        return [...this.credentialsMap.values()]
+          .filter((c) => !filters?.tenantId || c.tenantId === filters.tenantId)
+          .map(clone);
+      },
       update: async (record) => {
         if (!this.credentialsMap.has(record.id)) {
           throw new NotFoundError('Credential', record.id);
@@ -611,8 +658,9 @@ export class MemoryUnitOfWork implements IUnitOfWork {
         const found = this.usersMap.get(id);
         return found ? clone(found) : null;
       },
-      findByEmail: async (email) => {
+      findByEmail: async (email, tenantId) => {
         for (const u of this.usersMap.values()) {
+          if (tenantId && u.tenantId !== tenantId) continue;
           if (u.email.toLowerCase() === email.toLowerCase()) return clone(u);
         }
         return null;
@@ -620,13 +668,17 @@ export class MemoryUnitOfWork implements IUnitOfWork {
       list: async (filters) => {
         return [...this.usersMap.values()]
           .filter((u) => {
+            if (filters?.tenantId && u.tenantId !== filters.tenantId) return false;
             if (filters?.department && u.department !== filters.department) return false;
             if (filters?.isActive !== undefined && u.isActive !== filters.isActive) return false;
             return true;
           })
           .map(clone);
       },
-      count: async () => this.usersMap.size,
+      count: async (tenantId) => {
+        if (!tenantId) return this.usersMap.size;
+        return [...this.usersMap.values()].filter((u) => u.tenantId === tenantId).length;
+      },
       createApiKey: async (apiKey) => {
         const saved = clone(apiKey);
         this.apiKeysMap.set(saved.id, saved);
@@ -663,6 +715,7 @@ export class MemoryUnitOfWork implements IUnitOfWork {
     };
 
     return {
+      tenants,
       workflows,
       instances,
       tokens,

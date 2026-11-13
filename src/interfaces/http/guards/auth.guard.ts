@@ -33,6 +33,7 @@ export class AuthGuard implements CanActivate {
 
     const authHeader = req.headers.authorization;
     const apiKeyHeader = req.headers['x-api-key'];
+    const tenantHeader = req.headers['x-tenant-id'];
 
     if (typeof authHeader === 'string' && authHeader.startsWith('Bearer ')) {
       const token = authHeader.slice(7).trim();
@@ -41,6 +42,16 @@ export class AuthGuard implements CanActivate {
       principal = await this.authService.verifyApiKey(apiKeyHeader.trim());
     } else {
       throw new UnauthorizedError('Missing Bearer token or x-api-key header');
+    }
+
+    // Allow explicitly provided x-tenant-id header if principal is global admin or belongs to that tenant
+    if (typeof tenantHeader === 'string' && tenantHeader.trim()) {
+      const targetTenant = tenantHeader.trim();
+      if (principal.role === 'ADMIN' || principal.tenantId === targetTenant) {
+        principal = { ...principal, tenantId: targetTenant };
+      } else {
+        throw new ForbiddenError(`Cannot switch to unauthorized tenant '${targetTenant}'`);
+      }
     }
 
     req.principal = principal;

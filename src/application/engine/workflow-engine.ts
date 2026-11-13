@@ -38,6 +38,7 @@ import { CredentialService as CredentialServiceClass } from '../services/credent
 import { NodeExecutorRegistry } from './node-executors.js';
 
 export interface StartInstanceInput {
+  tenantId?: string;
   workflowKey: string;
   version?: number;
   triggerType?: string;
@@ -62,9 +63,10 @@ export class WorkflowEngine {
   ) {}
 
   async startInstance(input: StartInstanceInput): Promise<WorkflowInstance> {
+    const tenantId = input.tenantId ?? 'default';
     const workflow = input.version
-      ? await this.uow.repos.workflows.findByKeyAndVersion(input.workflowKey, input.version)
-      : await this.uow.repos.workflows.findLatestByKey(input.workflowKey, 'PUBLISHED');
+      ? await this.uow.repos.workflows.findByKeyAndVersion(input.workflowKey, input.version, tenantId)
+      : await this.uow.repos.workflows.findLatestByKey(input.workflowKey, 'PUBLISHED', tenantId);
 
     if (!workflow || workflow.status !== 'PUBLISHED') {
       throw new NotFoundError('PublishedWorkflow', input.workflowKey);
@@ -91,6 +93,7 @@ export class WorkflowEngine {
 
     const instance: WorkflowInstance = {
       id: instanceId,
+      tenantId: workflow.tenantId ?? tenantId,
       workflowId: workflow.id,
       workflowKey: workflow.key,
       workflowVersion: workflow.version,
@@ -356,6 +359,7 @@ export class WorkflowEngine {
           const taskId = crypto.randomUUID();
           await repos.userTasks.create({
             id: taskId,
+            tenantId: instance.tenantId,
             instanceId: instance.id,
             tokenId: token.id,
             nodeId: node.id,
@@ -410,6 +414,7 @@ export class WorkflowEngine {
           const targetRecipient = outcome.taskConfig.assignee || 'unassigned';
           await repos.notifications.create({
             id: crypto.randomUUID(),
+            tenantId: instance.tenantId,
             recipientId: targetRecipient,
             recipientGroup: outcome.taskConfig.candidateGroup ?? null,
             title: `New Task: ${outcome.taskConfig.title}`,
@@ -522,8 +527,8 @@ export class WorkflowEngine {
 
         if (outcome.kind === 'WAIT_SUB_WORKFLOW') {
           const childWorkflow = outcome.version
-            ? await repos.workflows.findByKeyAndVersion(outcome.workflowKey, outcome.version)
-            : await repos.workflows.findLatestByKey(outcome.workflowKey, 'PUBLISHED');
+            ? await repos.workflows.findByKeyAndVersion(outcome.workflowKey, outcome.version, instance.tenantId)
+            : await repos.workflows.findLatestByKey(outcome.workflowKey, 'PUBLISHED', instance.tenantId);
           if (!childWorkflow || childWorkflow.status !== 'PUBLISHED') {
             throw new NotFoundError('PublishedChildWorkflow', outcome.workflowKey);
           }
@@ -544,6 +549,7 @@ export class WorkflowEngine {
 
           await repos.instances.create({
             id: childInstanceId,
+            tenantId: instance.tenantId,
             workflowId: childWorkflow.id,
             workflowKey: childWorkflow.key,
             workflowVersion: childWorkflow.version,

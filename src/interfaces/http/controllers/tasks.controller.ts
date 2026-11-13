@@ -69,6 +69,7 @@ export class TasksController {
       : { userId: principal.userId, groups: [principal.email, principal.role.toLowerCase()] };
 
     const items = await this.taskService.listTasks({
+      tenantId: principal.tenantId,
       status,
       assignee: assignee ?? (isGlobalAdmin ? undefined : principal.userId),
       candidateGroup,

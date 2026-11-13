@@ -63,8 +63,18 @@ export const ROLE_PERMISSIONS: Record<Role, ReadonlySet<Permission>> = {
   ]),
 };
 
+export interface TenantRecord {
+  id: string;
+  name: string;
+  plan: string;
+  isActive: boolean;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
 export interface UserRecord {
   id: string;
+  tenantId: string;
   email: string;
   name: string;
   passwordHash: string;
@@ -80,6 +90,7 @@ export interface UserRecord {
 
 export interface ApiKeyRecord {
   id: string;
+  tenantId: string;
   userId: string;
   name: string;
   keyPrefix: string;
@@ -91,6 +102,7 @@ export interface ApiKeyRecord {
 }
 
 export interface AuthPrincipal {
+  tenantId: string;
   userId: string;
   email: string;
   role: Role;
@@ -99,6 +111,7 @@ export interface AuthPrincipal {
 
 export interface CredentialRecord {
   id: string;
+  tenantId: string;
   name: string;
   type: 'bearer' | 'api_key' | 'basic' | 'custom';
   keyId: string;

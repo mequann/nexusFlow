@@ -64,6 +64,7 @@ export interface ExternalTask {
 
 export interface WorkflowInstance {
   id: string;
+  tenantId: string;
   workflowId: string;
   workflowKey: string;
   workflowVersion: number;
@@ -114,6 +115,7 @@ export interface StepExecution {
 
 export interface UserTask {
   id: string;
+  tenantId: string;
   instanceId: string;
   tokenId: string;
   nodeId: string;
@@ -218,6 +220,7 @@ export type NotificationType =
 
 export interface NotificationRecord {
   id: string;
+  tenantId: string;
   recipientId: string;
   recipientGroup: string | null;
   title: string;

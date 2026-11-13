@@ -41,19 +41,59 @@ import type {
   IRepositoryRegistry,
   IStepRepository,
   ISubscriptionRepository,
+  ITenantRepository,
   ITokenRepository,
   IUnitOfWork,
   IUserRepository,
   IUserTaskRepository,
   IWorkflowRepository,
 } from '../../../domain/ports/repositories.js';
-import type { CredentialRecord, Role } from '../../../domain/security/types.js';
+import type { CredentialRecord, Role, TenantRecord } from '../../../domain/security/types.js';
 import type { WorkflowDefinitionRecord, WorkflowStatus } from '../../../domain/workflow/types.js';
 import * as schema from '../../db/schema.js';
 
 type DrizzleDb = NodePgDatabase<typeof schema>;
 
 function buildDrizzleRegistry(db: DrizzleDb): IRepositoryRegistry {
+  const tenants: ITenantRepository = {
+    create: async (record) => {
+      const [inserted] = await db
+        .insert(schema.tenants)
+        .values({
+          id: record.id,
+          name: record.name,
+          plan: record.plan,
+          isActive: record.isActive,
+          createdAt: record.createdAt,
+          updatedAt: record.updatedAt,
+        })
+        .returning();
+      return inserted as TenantRecord;
+    },
+    findById: async (id) => {
+      const [row] = await db.select().from(schema.tenants).where(eq(schema.tenants.id, id));
+      return (row as TenantRecord) ?? null;
+    },
+    list: async () => {
+      const rows = await db.select().from(schema.tenants).orderBy(desc(schema.tenants.createdAt));
+      return rows as TenantRecord[];
+    },
+    update: async (record) => {
+      const [updated] = await db
+        .update(schema.tenants)
+        .set({
+          name: record.name,
+          plan: record.plan,
+          isActive: record.isActive,
+          updatedAt: new Date(),
+        })
+        .where(eq(schema.tenants.id, record.id))
+        .returning();
+      if (!updated) throw new NotFoundError('Tenant', record.id);
+      return updated as TenantRecord;
+    },
+  };
+
   const workflows: IWorkflowRepository = {
     create: async (record) => {
       try {
@@ -61,6 +101,7 @@ function buildDrizzleRegistry(db: DrizzleDb): IRepositoryRegistry {
           .insert(schema.workflows)
           .values({
             id: record.id,
+            tenantId: record.tenantId,
             key: record.key,
             name: record.name,
             description: record.description,
@@ -79,7 +120,9 @@ function buildDrizzleRegistry(db: DrizzleDb): IRepositoryRegistry {
         return toWorkflowRecord(inserted!);
       } catch (err: unknown) {
         if ((err as { code?: string }).code === '23505') {
-          throw new ConflictError(`Workflow '${record.key}' v${record.version} already exists`);
+          throw new ConflictError(
+            `Workflow '${record.key}' v${record.version} already exists in tenant '${record.tenantId}'`,
+          );
         }
         throw err;
       }
@@ -88,35 +131,40 @@ function buildDrizzleRegistry(db: DrizzleDb): IRepositoryRegistry {
       const [row] = await db.select().from(schema.workflows).where(eq(schema.workflows.id, id));
       return row ? toWorkflowRecord(row) : null;
     },
-    findLatestByKey: async (key, status) => {
-      const cond = status
-        ? and(eq(schema.workflows.key, key), eq(schema.workflows.status, status))
-        : eq(schema.workflows.key, key);
+    findLatestByKey: async (key, status, tenantId) => {
+      const conds = [eq(schema.workflows.key, key)];
+      if (status) conds.push(eq(schema.workflows.status, status));
+      if (tenantId) conds.push(eq(schema.workflows.tenantId, tenantId));
       const [row] = await db
         .select()
         .from(schema.workflows)
-        .where(cond)
+        .where(and(...conds))
         .orderBy(desc(schema.workflows.version))
         .limit(1);
       return row ? toWorkflowRecord(row) : null;
     },
-    findByKeyAndVersion: async (key, version) => {
+    findByKeyAndVersion: async (key, version, tenantId) => {
+      const conds = [
+        eq(schema.workflows.key, key),
+        eq(schema.workflows.version, version),
+      ];
+      if (tenantId) conds.push(eq(schema.workflows.tenantId, tenantId));
       const [row] = await db
         .select()
         .from(schema.workflows)
-        .where(and(eq(schema.workflows.key, key), eq(schema.workflows.version, version)));
+        .where(and(...conds));
       return row ? toWorkflowRecord(row) : null;
     },
-    findByWebhookPath: async (webhookPath) => {
+    findByWebhookPath: async (webhookPath, tenantId) => {
+      const conds = [
+        eq(schema.workflows.status, 'PUBLISHED'),
+        eq(schema.workflows.webhookPath, webhookPath),
+      ];
+      if (tenantId) conds.push(eq(schema.workflows.tenantId, tenantId));
       const [row] = await db
         .select()
         .from(schema.workflows)
-        .where(
-          and(
-            eq(schema.workflows.status, 'PUBLISHED'),
-            eq(schema.workflows.webhookPath, webhookPath),
-          ),
-        )
+        .where(and(...conds))
         .orderBy(desc(schema.workflows.version))
         .limit(1);
       return row ? toWorkflowRecord(row) : null;
@@ -136,6 +184,7 @@ function buildDrizzleRegistry(db: DrizzleDb): IRepositoryRegistry {
     },
     list: async (filters) => {
       const conditions = [];
+      if (filters?.tenantId) conditions.push(eq(schema.workflows.tenantId, filters.tenantId));
       if (filters?.status) conditions.push(eq(schema.workflows.status, filters.status));
       if (filters?.key) conditions.push(eq(schema.workflows.key, filters.key));
       const rows = await db
@@ -164,11 +213,13 @@ function buildDrizzleRegistry(db: DrizzleDb): IRepositoryRegistry {
       if (!updated) throw new NotFoundError('Workflow', record.id);
       return toWorkflowRecord(updated);
     },
-    getNextVersion: async (key) => {
+    getNextVersion: async (key, tenantId) => {
+      const conds = [eq(schema.workflows.key, key)];
+      if (tenantId) conds.push(eq(schema.workflows.tenantId, tenantId));
       const [row] = await db
         .select({ maxVer: sql<number | null>`MAX(${schema.workflows.version})` })
         .from(schema.workflows)
-        .where(eq(schema.workflows.key, key));
+        .where(and(...conds));
       return Number(row?.maxVer ?? 0) + 1;
     },
   };
@@ -179,6 +230,7 @@ function buildDrizzleRegistry(db: DrizzleDb): IRepositoryRegistry {
         .insert(schema.workflowInstances)
         .values({
           id: inst.id,
+          tenantId: inst.tenantId,
           workflowId: inst.workflowId,
           workflowKey: inst.workflowKey,
           workflowVersion: inst.workflowVersion,
@@ -217,6 +269,7 @@ function buildDrizzleRegistry(db: DrizzleDb): IRepositoryRegistry {
     },
     list: async (filters) => {
       const conditions = [];
+      if (filters?.tenantId) conditions.push(eq(schema.workflowInstances.tenantId, filters.tenantId));
       if (filters?.status) conditions.push(eq(schema.workflowInstances.status, filters.status));
       if (filters?.workflowKey) {
         conditions.push(eq(schema.workflowInstances.workflowKey, filters.workflowKey));
@@ -380,6 +433,7 @@ function buildDrizzleRegistry(db: DrizzleDb): IRepositoryRegistry {
         .insert(schema.userTasks)
         .values({
           id: t.id,
+          tenantId: t.tenantId,
           instanceId: t.instanceId,
           tokenId: t.tokenId,
           nodeId: t.nodeId,
@@ -412,6 +466,7 @@ function buildDrizzleRegistry(db: DrizzleDb): IRepositoryRegistry {
     },
     list: async (filters) => {
       const conditions = [];
+      if (filters?.tenantId) conditions.push(eq(schema.userTasks.tenantId, filters.tenantId));
       if (filters?.status) conditions.push(eq(schema.userTasks.status, filters.status));
       if (filters?.assignee) conditions.push(eq(schema.userTasks.assignee, filters.assignee));
       if (filters?.candidateGroup) {
@@ -479,6 +534,7 @@ function buildDrizzleRegistry(db: DrizzleDb): IRepositoryRegistry {
         .insert(schema.notifications)
         .values({
           id: n.id,
+          tenantId: n.tenantId,
           recipientId: n.recipientId,
           recipientGroup: n.recipientGroup,
           title: n.title,
@@ -502,6 +558,9 @@ function buildDrizzleRegistry(db: DrizzleDb): IRepositoryRegistry {
     },
     list: async (filters) => {
       const conditions = [];
+      if (filters.tenantId) {
+        conditions.push(eq(schema.notifications.tenantId, filters.tenantId));
+      }
       if (filters.read !== undefined) {
         conditions.push(eq(schema.notifications.read, filters.read));
       }
@@ -532,16 +591,16 @@ function buildDrizzleRegistry(db: DrizzleDb): IRepositoryRegistry {
         .set({ read: true, readAt })
         .where(eq(schema.notifications.id, id));
     },
-    markAllAsRead: async (recipientId, readAt) => {
+    markAllAsRead: async (recipientId, readAt, tenantId) => {
+      const conds = [
+        eq(schema.notifications.recipientId, recipientId),
+        eq(schema.notifications.read, false),
+      ];
+      if (tenantId) conds.push(eq(schema.notifications.tenantId, tenantId));
       await db
         .update(schema.notifications)
         .set({ read: true, readAt })
-        .where(
-          and(
-            eq(schema.notifications.recipientId, recipientId),
-            eq(schema.notifications.read, false),
-          ),
-        );
+        .where(and(...conds));
     },
   };
 
@@ -924,6 +983,7 @@ function buildDrizzleRegistry(db: DrizzleDb): IRepositoryRegistry {
           .insert(schema.credentials)
           .values({
             id: record.id,
+            tenantId: record.tenantId,
             name: record.name,
             type: record.type,
             keyId: record.keyId,
@@ -938,7 +998,7 @@ function buildDrizzleRegistry(db: DrizzleDb): IRepositoryRegistry {
         return toCredentialRecord(row!);
       } catch (err: unknown) {
         if ((err as { code?: string }).code === '23505') {
-          throw new ConflictError(`Credential '${record.name}' already exists`);
+          throw new ConflictError(`Credential '${record.name}' already exists in tenant '${record.tenantId}'`);
         }
         throw err;
       }
@@ -947,17 +1007,22 @@ function buildDrizzleRegistry(db: DrizzleDb): IRepositoryRegistry {
       const [row] = await db.select().from(schema.credentials).where(eq(schema.credentials.id, id));
       return row ? toCredentialRecord(row) : null;
     },
-    findByName: async (name) => {
+    findByName: async (name, tenantId) => {
+      const conds = [eq(schema.credentials.name, name)];
+      if (tenantId) conds.push(eq(schema.credentials.tenantId, tenantId));
       const [row] = await db
         .select()
         .from(schema.credentials)
-        .where(eq(schema.credentials.name, name));
+        .where(and(...conds));
       return row ? toCredentialRecord(row) : null;
     },
-    list: async () => {
+    list: async (filters) => {
+      const conds = [];
+      if (filters?.tenantId) conds.push(eq(schema.credentials.tenantId, filters.tenantId));
       const rows = await db
         .select()
         .from(schema.credentials)
+        .where(conds.length > 0 ? and(...conds) : undefined)
         .orderBy(desc(schema.credentials.createdAt));
       return rows.map(toCredentialRecord);
     },
@@ -992,11 +1057,16 @@ function buildDrizzleRegistry(db: DrizzleDb): IRepositoryRegistry {
           .insert(schema.users)
           .values({
             id: user.id,
+            tenantId: user.tenantId,
             email: user.email,
             name: user.name,
             passwordHash: user.passwordHash,
             role: user.role,
             isActive: user.isActive,
+            department: user.department,
+            managerId: user.managerId,
+            outOfOffice: user.outOfOffice,
+            delegateId: user.delegateId,
             createdAt: user.createdAt,
             updatedAt: user.updatedAt,
           })
@@ -1013,15 +1083,18 @@ function buildDrizzleRegistry(db: DrizzleDb): IRepositoryRegistry {
       const [row] = await db.select().from(schema.users).where(eq(schema.users.id, id));
       return row ? { ...row, role: row.role as Role } : null;
     },
-    findByEmail: async (email) => {
+    findByEmail: async (email, tenantId) => {
+      const conds = [sql`LOWER(${schema.users.email}) = LOWER(${email})`];
+      if (tenantId) conds.push(eq(schema.users.tenantId, tenantId));
       const [row] = await db
         .select()
         .from(schema.users)
-        .where(sql`LOWER(${schema.users.email}) = LOWER(${email})`);
+        .where(and(...conds));
       return row ? { ...row, role: row.role as Role } : null;
     },
     list: async (filters) => {
       const conditions = [];
+      if (filters?.tenantId) conditions.push(eq(schema.users.tenantId, filters.tenantId));
       if (filters?.department) conditions.push(eq(schema.users.department, filters.department));
       if (filters?.isActive !== undefined) conditions.push(eq(schema.users.isActive, filters.isActive));
       const rows = await db
@@ -1031,8 +1104,9 @@ function buildDrizzleRegistry(db: DrizzleDb): IRepositoryRegistry {
         .orderBy(schema.users.name);
       return rows.map((r) => ({ ...r, role: r.role as Role }));
     },
-    count: async () => {
-      const [row] = await db.select({ cnt: drizzleCount() }).from(schema.users);
+    count: async (tenantId) => {
+      const cond = tenantId ? eq(schema.users.tenantId, tenantId) : undefined;
+      const [row] = await db.select({ cnt: drizzleCount() }).from(schema.users).where(cond);
       return Number(row?.cnt ?? 0);
     },
     createApiKey: async (apiKey) => {
@@ -1040,6 +1114,7 @@ function buildDrizzleRegistry(db: DrizzleDb): IRepositoryRegistry {
         .insert(schema.apiKeys)
         .values({
           id: apiKey.id,
+          tenantId: apiKey.tenantId,
           userId: apiKey.userId,
           name: apiKey.name,
           keyPrefix: apiKey.keyPrefix,
@@ -1113,6 +1188,7 @@ function buildDrizzleRegistry(db: DrizzleDb): IRepositoryRegistry {
   };
 
   return {
+    tenants,
     workflows,
     instances,
     tokens,
