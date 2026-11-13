@@ -418,3 +418,4 @@ export const LogsView: React.FC<LogsViewProps> = ({ onNotify, onError }) => {
     </div>
   );
 };
+

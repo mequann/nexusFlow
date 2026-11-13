@@ -60,3 +60,4 @@ export class LogsController {
     return { instanceId, steps, total: steps.length };
   }
 }
+
