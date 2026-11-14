@@ -1,4 +1,4 @@
-export type Role = 'ADMIN' | 'OPERATOR' | 'BUILDER' | 'VIEWER';
+export type Role = 'ADMIN' | 'OPERATOR' | 'BUILDER' | 'VIEWER' | 'HR' | 'USER';
 
 export type Permission =
   | 'workflow:read'
@@ -40,6 +40,7 @@ export const ROLE_PERMISSIONS: Record<Role, ReadonlySet<Permission>> = {
     'instance:read',
     'instance:start',
     'task:read',
+    'task:act',
     'credential:read',
     'credential:write',
     'message:correlate',
@@ -60,6 +61,22 @@ export const ROLE_PERMISSIONS: Record<Role, ReadonlySet<Permission>> = {
     'instance:read',
     'task:read',
     'incident:read',
+  ]),
+  HR: new Set<Permission>([
+    'workflow:read',
+    'instance:read',
+    'instance:start',
+    'task:read',
+    'task:act',
+    'incident:read',
+    'message:correlate',
+  ]),
+  USER: new Set<Permission>([
+    'workflow:read',
+    'instance:read',
+    'instance:start',
+    'task:read',
+    'task:act',
   ]),
 };
 
@@ -105,6 +122,7 @@ export interface AuthPrincipal {
   tenantId: string;
   userId: string;
   email: string;
+  name?: string;
   role: Role;
   authType: 'jwt' | 'api_key';
 }

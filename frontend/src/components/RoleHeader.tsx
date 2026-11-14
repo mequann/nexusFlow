@@ -128,8 +128,15 @@ export function RoleHeader({
         <div className="user-profile-tag">
           <div className="user-avatar">{user?.name ? user.name[0]?.toUpperCase() : 'U'}</div>
           <div className="user-meta">
-            <span className="user-email">{user?.email}</span>
-            <span className="user-badge">{user?.role}</span>
+            <span className="user-email" style={{ fontWeight: 600, color: 'var(--foreground)' }}>
+              {user?.name || user?.email}
+            </span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 1 }}>
+              <span className="user-badge">{user?.role}</span>
+              {user?.department && (
+                <span style={{ fontSize: 10, color: 'var(--muted)' }}>• {user.department}</span>
+              )}
+            </div>
           </div>
         </div>
 

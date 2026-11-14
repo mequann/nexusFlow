@@ -14,6 +14,8 @@ import {
 import { z } from 'zod';
 import { AuthService } from '../../../application/services/auth-service.js';
 import { UserSyncService } from '../../../application/services/user-sync-service.js';
+import { SsoService } from '../../../application/services/sso.service.js';
+import { ValidationError } from '../../../domain/errors.js';
 import type { AuthPrincipal } from '../../../domain/security/types.js';
 import { CurrentPrincipal, Public, RequirePermission } from '../decorators/auth.decorator.js';
 import {
@@ -38,13 +40,13 @@ const RegisterSchema = z.object({
   email: z.string().email(),
   name: z.string().min(1).max(120),
   password: z.string().min(8),
-  role: z.enum(['ADMIN', 'OPERATOR', 'BUILDER', 'VIEWER']),
+  role: z.enum(['ADMIN', 'OPERATOR', 'BUILDER', 'VIEWER', 'HR', 'USER']),
   tenantId: z.string().optional(),
 });
 
 const CreateApiKeySchema = z.object({
   name: z.string().min(1).max(100),
-  role: z.enum(['ADMIN', 'OPERATOR', 'BUILDER', 'VIEWER']),
+  role: z.enum(['ADMIN', 'OPERATOR', 'BUILDER', 'VIEWER', 'HR', 'USER']),
   expiresInDays: z.number().int().min(1).max(365).optional(),
 });
 
@@ -53,7 +55,7 @@ const ImportUsersSchema = z.object({
     z.object({
       email: z.string().email(),
       name: z.string().min(1),
-      role: z.enum(['ADMIN', 'OPERATOR', 'BUILDER', 'VIEWER']).optional(),
+      role: z.enum(['ADMIN', 'OPERATOR', 'BUILDER', 'VIEWER', 'HR', 'USER']).optional(),
       department: z.string().optional(),
       managerEmail: z.string().email().optional(),
       isActive: z.boolean().optional(),
@@ -68,7 +70,35 @@ export class AuthController {
   constructor(
     @Inject(AuthService) private readonly authService: AuthService,
     @Inject(UserSyncService) private readonly userSyncService: UserSyncService,
+    @Inject(SsoService) private readonly ssoService: SsoService,
   ) {}
+
+  @Public()
+  @Get('sso/providers')
+  @ApiOperation({ summary: 'List configured Enterprise SSO Identity Providers (OIDC, SAML, Keycloak, Azure AD)' })
+  getSsoProviders() {
+    return { providers: this.ssoService.listConfiguredProviders() };
+  }
+
+  @Public()
+  @Post('sso/callback')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Process Enterprise SSO identity token / callback and issue JWT' })
+  async ssoCallback(
+    @Body() body: { providerId: string; email: string; name?: string; groups?: string[]; department?: string; tenantId?: string },
+  ) {
+    if (!body?.email || !body?.providerId) {
+      throw new ValidationError('Missing email or providerId in SSO callback payload');
+    }
+    return this.ssoService.handleSsoLogin({
+      providerId: body.providerId,
+      email: body.email,
+      name: body.name || body.email.split('@')[0] || 'User',
+      groups: body.groups,
+      department: body.department,
+      tenantId: body.tenantId,
+    });
+  }
 
   @Public()
   @Post('login')

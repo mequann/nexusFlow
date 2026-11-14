@@ -4,6 +4,7 @@ import cronParser from 'cron-parser';
 import { WorkflowEngine } from '../../application/engine/workflow-engine.js';
 import { TaskService } from '../../application/services/task-service.js';
 import { EventDispatcherService } from '../../application/services/event-dispatcher.service.js';
+import { DistributedLockService } from '../../application/services/distributed-lock.service.js';
 import { APP_CONFIG, APP_LOGGER, UNIT_OF_WORK } from '../../application/tokens.js';
 import type { AppConfig } from '../../config/env.js';
 import type { IUnitOfWork } from '../../domain/ports/repositories.js';
@@ -20,6 +21,7 @@ export class SchedulerWorker {
     @Inject(WorkflowEngine) private readonly engine: WorkflowEngine,
     @Inject(TaskService) private readonly taskService: TaskService,
     @Inject(EventDispatcherService) private readonly eventDispatcher: EventDispatcherService,
+    @Inject(DistributedLockService) private readonly lockService: DistributedLockService,
     @Inject(APP_CONFIG) private readonly config: AppConfig,
     @Inject(APP_LOGGER) private readonly logger: ILogger,
   ) {}
@@ -68,11 +70,22 @@ export class SchedulerWorker {
     slaEscalated: number;
     outboxRelayed: number;
   }> {
-    const timersFired = await this.fireDueTimers(now);
-    const cronsFired = await this.fireDueCrons(now);
-    const slaEscalated = await this.taskService.escalateOverdueTasks(now);
-    const outboxRelayed = await this.relayOutbox();
-    return { timersFired, cronsFired, slaEscalated, outboxRelayed };
+    const lockResult = await this.lockService.withLock(
+      'nexusflow:scheduler-worker-tick',
+      async () => {
+        const timersFired = await this.fireDueTimers(now);
+        const cronsFired = await this.fireDueCrons(now);
+        const slaEscalated = await this.taskService.escalateOverdueTasks(now);
+        const outboxRelayed = await this.relayOutbox();
+        return { timersFired, cronsFired, slaEscalated, outboxRelayed };
+      },
+      this.config.TIMER_POLL_INTERVAL_MS * 2,
+    );
+
+    if (lockResult.executed && lockResult.result) {
+      return lockResult.result;
+    }
+    return { timersFired: 0, cronsFired: 0, slaEscalated: 0, outboxRelayed: 0 };
   }
 
   async fireDueTimers(now = new Date()): Promise<number> {

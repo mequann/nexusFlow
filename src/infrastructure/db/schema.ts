@@ -380,3 +380,25 @@ export const auditLogs = pgTable(
     index('idx_audit_logs_resource').on(table.resourceType, table.resourceId),
   ],
 );
+
+export const storedFiles = pgTable(
+  'stored_files',
+  {
+    id: uuid('id').primaryKey(),
+    tenantId: text('tenant_id').notNull().default('default').references(() => tenants.id, { onDelete: 'cascade' }),
+    filename: text('filename').notNull(),
+    mimeType: text('mime_type').notNull().default('application/octet-stream'),
+    sizeBytes: integer('size_bytes').notNull().default(0),
+    checksumSha256: text('checksum_sha256').notNull(),
+    storageDriver: text('storage_driver').notNull().default('local'),
+    storagePath: text('storage_path').notNull(),
+    contentData: text('content_data'),
+    metadata: jsonb('metadata').$type<Record<string, unknown>>().notNull().default({}),
+    uploadedBy: text('uploaded_by'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index('idx_stored_files_tenant').on(table.tenantId, table.createdAt),
+    index('idx_stored_files_checksum').on(table.checksumSha256),
+  ],
+);

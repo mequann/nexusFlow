@@ -158,3 +158,4 @@ export const PROCUREMENT_CAPEX_TEMPLATE: CreateWorkflowInput = {
     ],
   },
 };
+

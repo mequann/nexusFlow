@@ -7,6 +7,7 @@ import {
   UseGuards,
   HttpCode,
   HttpStatus,
+  Inject,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth, ApiParam } from '@nestjs/swagger';
 import { AuthGuard } from '../guards/auth.guard.js';
@@ -50,7 +51,9 @@ const ApproveAndSealSchema = z.object({
 @UseGuards(AuthGuard)
 @Controller('api/v1/correspondence')
 export class CorrespondenceController {
-  constructor(private readonly correspondenceService: CorrespondenceService) {}
+  constructor(
+    @Inject(CorrespondenceService) private readonly correspondenceService: CorrespondenceService,
+  ) {}
 
   @Post()
   @HttpCode(HttpStatus.CREATED)
@@ -127,7 +130,9 @@ export class CorrespondenceController {
 @ApiTags('Public Document Verification (የሰነድ ትክክለኛነት ማረጋገጫ)')
 @Controller('api/v1/verify')
 export class PublicVerificationController {
-  constructor(private readonly correspondenceService: CorrespondenceService) {}
+  constructor(
+    @Inject(CorrespondenceService) private readonly correspondenceService: CorrespondenceService,
+  ) {}
 
   @Get(':id')
   @ApiOperation({ summary: 'Verify authenticity of a digitally sealed document (Public QR scanner destination)' })

@@ -94,12 +94,12 @@ export class InstancesController {
     @Query('workflowKey') workflowKey?: string,
     @Query('limit') limit?: string,
   ) {
-    const isGlobalAdmin = principal.role === 'ADMIN';
+    const canViewAllTenantInstances = ['ADMIN', 'OPERATOR', 'BUILDER', 'HR', 'VIEWER'].includes(principal.role);
     const items = await this.uow.repos.instances.list({
       tenantId: principal.tenantId,
       status,
       workflowKey,
-      startedBy: isGlobalAdmin ? undefined : principal.userId,
+      startedBy: canViewAllTenantInstances ? undefined : principal.userId,
       limit: limit ? Number(limit) : 100,
     });
     return { items };
@@ -117,7 +117,8 @@ export class InstancesController {
     if (principal.role !== 'ADMIN' && instance.tenantId !== principal.tenantId) {
       throw new ForbiddenError('You do not have access to view this workflow instance');
     }
-    if (principal.role !== 'ADMIN' && instance.startedBy && instance.startedBy !== principal.userId) {
+    const canViewAll = ['ADMIN', 'OPERATOR', 'BUILDER', 'HR', 'VIEWER'].includes(principal.role);
+    if (!canViewAll && instance.startedBy && instance.startedBy !== principal.userId) {
       throw new ForbiddenError('You do not have access to view this workflow instance');
     }
     return instance;
@@ -137,7 +138,8 @@ export class InstancesController {
     if (principal.role !== 'ADMIN' && instance.tenantId !== principal.tenantId) {
       throw new ForbiddenError('You do not have access to view this workflow instance trace');
     }
-    if (principal.role !== 'ADMIN' && instance.startedBy && instance.startedBy !== principal.userId) {
+    const canViewAll = ['ADMIN', 'OPERATOR', 'BUILDER', 'HR', 'VIEWER'].includes(principal.role);
+    if (!canViewAll && instance.startedBy && instance.startedBy !== principal.userId) {
       throw new ForbiddenError('You do not have access to view this workflow instance trace');
     }
 

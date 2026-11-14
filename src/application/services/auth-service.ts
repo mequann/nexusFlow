@@ -37,9 +37,6 @@ export class AuthService {
   }
 
   async bootstrapAdminIfEmpty(): Promise<void> {
-    const count = await this.uow.repos.users.count();
-    if (count > 0) return;
-
     // Ensure default tenant exists
     const defaultTenant = await this.uow.repos.tenants.findById('default');
     if (!defaultTenant) {
@@ -53,18 +50,87 @@ export class AuthService {
       });
     }
 
+    const defaultAdmin = await this.uow.repos.users.findByEmail(this.config.BOOTSTRAP_ADMIN_EMAIL, 'default');
     const now = new Date();
-    await this.uow.repos.users.create({
-      id: crypto.randomUUID(),
-      tenantId: 'default',
-      email: this.config.BOOTSTRAP_ADMIN_EMAIL,
-      name: 'Platform Admin',
-      passwordHash: hashPassword(this.config.BOOTSTRAP_ADMIN_PASSWORD),
-      role: 'ADMIN',
-      isActive: true,
-      createdAt: now,
-      updatedAt: now,
-    });
+    if (!defaultAdmin) {
+      await this.uow.repos.users.create({
+        id: crypto.randomUUID(),
+        tenantId: 'default',
+        email: this.config.BOOTSTRAP_ADMIN_EMAIL,
+        name: 'Platform Admin',
+        passwordHash: hashPassword(this.config.BOOTSTRAP_ADMIN_PASSWORD),
+        role: 'ADMIN',
+        department: 'IT & Infrastructure',
+        isActive: true,
+        createdAt: now,
+        updatedAt: now,
+      });
+    }
+
+    // In non-test environments (development & production), bootstrap role demo accounts
+    if (this.config.NODE_ENV !== 'test') {
+      await this.bootstrapDemoUsers();
+    }
+  }
+
+  async bootstrapDemoUsers(): Promise<void> {
+    const defaultUsers: Array<{
+      email: string;
+      name: string;
+      role: Role;
+      department: string;
+    }> = [
+      {
+        email: 'hr@nexusflow.local',
+        name: 'Almaz Tadesse',
+        role: 'HR',
+        department: 'Human Resources',
+      },
+      {
+        email: 'operator@nexusflow.local',
+        name: 'Sara Bekele',
+        role: 'OPERATOR',
+        department: 'Operations & DevOps',
+      },
+      {
+        email: 'builder@nexusflow.local',
+        name: 'Dawit Kebede',
+        role: 'BUILDER',
+        department: 'Engineering & Automation',
+      },
+      {
+        email: 'viewer@nexusflow.local',
+        name: 'Yonas Haile',
+        role: 'VIEWER',
+        department: 'Audit & Compliance',
+      },
+      {
+        email: 'user@nexusflow.local',
+        name: 'Abebe Bikila',
+        role: 'USER',
+        department: 'Operations / IT',
+      },
+    ];
+
+    const passwordHash = hashPassword(this.config.BOOTSTRAP_ADMIN_PASSWORD);
+    const now = new Date();
+    for (const u of defaultUsers) {
+      const existing = await this.uow.repos.users.findByEmail(u.email, 'default');
+      if (!existing) {
+        await this.uow.repos.users.create({
+          id: crypto.randomUUID(),
+          tenantId: 'default',
+          email: u.email,
+          name: u.name,
+          passwordHash,
+          role: u.role,
+          department: u.department,
+          isActive: true,
+          createdAt: now,
+          updatedAt: now,
+        });
+      }
+    }
   }
 
   async registerUser(input: {
@@ -115,6 +181,7 @@ export class AuthService {
     const accessToken = await new SignJWT({
       tenantId: user.tenantId,
       email: user.email,
+      name: user.name,
       role: user.role,
     })
       .setProtectedHeader({ alg: 'HS256' })
@@ -166,6 +233,7 @@ export class AuthService {
         tenantId: (payload.tenantId as string) || 'default',
         userId: payload.sub,
         email: String(payload.email),
+        name: (payload.name as string) || undefined,
         role: payload.role as Role,
         authType: 'jwt',
       };

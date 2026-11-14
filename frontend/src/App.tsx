@@ -5,7 +5,9 @@ import {
   Briefcase,
   CheckCircle2,
   Cpu,
+  Download,
   FileText,
+  HardDrive,
   KeyRound,
   LogOut,
   MessageSquare,
@@ -20,6 +22,7 @@ import {
   Sparkles,
   Stamp,
   Trash2,
+  UploadCloud,
   UserPlus,
   Users,
   Webhook,
@@ -36,6 +39,7 @@ import { TenantImporterView } from './components/TenantImporterView';
 import { TemporalControlPanel } from './components/TemporalControlPanel';
 import { CorrespondenceRegistryView } from './components/CorrespondenceRegistryView';
 import { LogsView } from './components/LogsView';
+import { DocumentVaultView } from './components/DocumentVaultView';
 import type {
   AppPerspective,
   CaseSummary,
@@ -63,7 +67,8 @@ type Tab =
   | 'cases'
   | 'tasks'
   | 'operations'
-  | 'connectors';
+  | 'connectors'
+  | 'storage';
 
 function statusBadge(status: string) {
   if (status === 'COMPLETED' || status === 'PUBLISHED' || status === 'ON_TRACK' || status === 'ready')
@@ -181,20 +186,24 @@ export default function App() {
       const [readyRes, meRes, wfRes, instRes, taskRes, incRes, connRes, credRes] = await Promise.all([
         api.ready().catch(() => ({ status: 'unavailable' })),
         api.me(),
-        api.listWorkflows(),
-        api.listInstances(),
-        api.listTasks(),
-        api.listIncidents(),
-        api.listConnectors(),
-        api.listCredentials(),
+        api.listWorkflows().catch(() => ({ items: [] })),
+        api.listInstances().catch(() => ({ items: [] })),
+        api.listTasks().catch(() => ({ items: [] })),
+        api.listIncidents().catch(() => ({ items: [] })),
+        api.listConnectors().catch(() => ({ items: [] })),
+        api.listCredentials().catch(() => ({ items: [] })),
       ]);
 
       setDbReady(readyRes.status);
-      setUser({
-        id: meRes.principal.userId,
-        email: meRes.principal.email,
-        name: meRes.principal.email.split('@')[0] ?? 'User',
-        role: meRes.principal.role,
+      setUser((prev) => {
+        const u: UserInfo = {
+          id: meRes.principal.userId,
+          email: meRes.principal.email,
+          name: meRes.principal.name ?? prev?.name ?? meRes.principal.email.split('@')[0] ?? 'User',
+          role: meRes.principal.role,
+          department: prev?.department,
+        };
+        return u;
       });
       setWorkflows(wfRes.items);
       if (wfRes.items.length > 0) {
@@ -240,7 +249,53 @@ export default function App() {
       const res = await api.login(loginEmail, loginPassword);
       setToken(res.accessToken);
       setUser(res.user);
-      notify('Signed in to NexusFlow Control Plane');
+      if (res.user.role === 'ADMIN') {
+        setPerspective('ADMIN');
+        setTab('overview');
+      } else if (res.user.role === 'HR') {
+        setPerspective('HR');
+        setTab('hr-desk');
+      } else if (res.user.role === 'OPERATOR') {
+        setPerspective('ADMIN');
+        setTab('operations');
+      } else if (res.user.role === 'BUILDER') {
+        setPerspective('ADMIN');
+        setTab('workflows');
+      } else {
+        setPerspective('USER');
+        setTab('user-portal');
+      }
+      notify(`Signed in as ${res.user.name} (${res.user.role})`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Login failed');
+    }
+  };
+
+  const quickLoginAs = async (email: string, pass: string = 'AdminChangeMe123!') => {
+    setLoginEmail(email);
+    setLoginPassword(pass);
+    setError(null);
+    try {
+      const res = await api.login(email, pass);
+      setToken(res.accessToken);
+      setUser(res.user);
+      if (res.user.role === 'ADMIN') {
+        setPerspective('ADMIN');
+        setTab('overview');
+      } else if (res.user.role === 'HR') {
+        setPerspective('HR');
+        setTab('hr-desk');
+      } else if (res.user.role === 'OPERATOR') {
+        setPerspective('ADMIN');
+        setTab('operations');
+      } else if (res.user.role === 'BUILDER') {
+        setPerspective('ADMIN');
+        setTab('workflows');
+      } else {
+        setPerspective('USER');
+        setTab('user-portal');
+      }
+      notify(`Signed in as ${res.user.name} (${res.user.role})`);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Login failed');
     }
@@ -291,7 +346,63 @@ export default function App() {
               Sign In to Studio
             </button>
             <div style={{ fontSize: 11, color: 'var(--muted)', textAlign: 'center' }}>
-              Default dev admin: <code>admin@nexusflow.local</code> / <code>AdminChangeMe123!</code>
+              Default password for seeded accounts: <code>AdminChangeMe123!</code>
+            </div>
+
+            <div style={{ borderTop: '1px solid var(--border)', paddingTop: 12, marginTop: 4 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8 }}>
+                ⚡ Test Differing Roles (One-Click Login):
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
+                <button
+                  type="button"
+                  className="btn btn-sm btn-secondary"
+                  onClick={() => void quickLoginAs('admin@nexusflow.local')}
+                  title="Platform Admin: Superuser with access to Temporal Controls, Importer, Credentials Vault & Full Studio"
+                >
+                  🛡️ Admin
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-sm btn-secondary"
+                  onClick={() => void quickLoginAs('hr@nexusflow.local')}
+                  title="HR Manager: Consensus Approvals, Transfers, People Operations & Directory"
+                >
+                  👥 HR Manager
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-sm btn-secondary"
+                  onClick={() => void quickLoginAs('operator@nexusflow.local')}
+                  title="Operations Lead: Incident Resolution, Worker Monitoring, Instance Lifecycle & Rewinds"
+                >
+                  ⚡ Operator
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-sm btn-secondary"
+                  onClick={() => void quickLoginAs('builder@nexusflow.local')}
+                  title="Workflow Builder: Visual Workflow Designer, Credentials Vault, DAG Publish"
+                >
+                  🏗️ Builder
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-sm btn-secondary"
+                  onClick={() => void quickLoginAs('user@nexusflow.local')}
+                  title="Normal Employee: My Workspace, Requisitions (Model 20, Per-Diem, Transfer), Tracking"
+                >
+                  📋 Employee (User)
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-sm btn-secondary"
+                  onClick={() => void quickLoginAs('viewer@nexusflow.local')}
+                  title="Compliance Auditor: Read-only observation of workflows, cases, and audit logs"
+                >
+                  👁️ Viewer (Auditor)
+                </button>
+              </div>
             </div>
           </div>
         </form>
@@ -384,6 +495,12 @@ export default function App() {
               >
                 <Workflow size={16} /> Workflows ({workflows.length})
               </button>
+              <button
+                className={`nav-btn ${tab === 'storage' ? 'active' : ''}`}
+                onClick={() => setTab('storage')}
+              >
+                <HardDrive size={16} /> Document Vault & Storage
+              </button>
             </>
           )}
 
@@ -424,6 +541,12 @@ export default function App() {
                 onClick={() => setTab('workflows')}
               >
                 <Workflow size={16} /> Workflows ({workflows.length})
+              </button>
+              <button
+                className={`nav-btn ${tab === 'storage' ? 'active' : ''}`}
+                onClick={() => setTab('storage')}
+              >
+                <HardDrive size={16} /> Document Vault & Storage
               </button>
               <button
                 className={`nav-btn ${tab === 'designer' ? 'active' : ''}`}
@@ -517,6 +640,7 @@ export default function App() {
                 {tab === 'tasks' && 'Human Approval & Task Inbox'}
                 {tab === 'operations' && 'Camunda Incidents & Polyglot Workers'}
                 {tab === 'connectors' && 'Dynamic Connectors, Vault & RBAC Access'}
+                {tab === 'storage' && 'Enterprise Document Vault & Attachment Storage'}
               </h1>
               <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>
                 NexusFlow Orchestration Engine · Multi-Tenant · Bilingual (Amharic/English) · Ethiopian Ge'ez Calendar
@@ -631,16 +755,39 @@ export default function App() {
             <div className="card">
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
                 <h3 style={{ margin: 0 }}>All Versions</h3>
-                <button
-                  className="btn btn-primary"
-                  onClick={() => {
-                    setDesignerTarget(null);
-                    setDesignerKeyCounter((c) => c + 1);
-                    setTab('designer');
-                  }}
-                >
-                  <Plus size={14} /> Designer
-                </button>
+                <div style={{ display: 'flex', gap: 6 }}>
+                  <label className="btn" style={{ cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 4, margin: 0 }} title="Import standard BPMN 2.0 XML">
+                    <UploadCloud size={13} /> Import BPMN 2.0
+                    <input
+                      type="file"
+                      accept=".bpmn,.xml"
+                      style={{ display: 'none' }}
+                      onChange={async (e) => {
+                        const file = e.target.files?.[0];
+                        if (!file) return;
+                        try {
+                          const text = await file.text();
+                          const created = await api.importBpmn(text);
+                          setNotice(`Imported BPMN 2.0 process: ${created.name} (${created.key})`);
+                          await refreshAll();
+                          setSelectedWf(created);
+                        } catch (err: any) {
+                          setError(err.message || 'BPMN import failed');
+                        }
+                      }}
+                    />
+                  </label>
+                  <button
+                    className="btn btn-primary"
+                    onClick={() => {
+                      setDesignerTarget(null);
+                      setDesignerKeyCounter((c) => c + 1);
+                      setTab('designer');
+                    }}
+                  >
+                    <Plus size={14} /> Designer
+                  </button>
+                </div>
               </div>
               {workflows.map((wf) => (
                 <div
@@ -682,6 +829,17 @@ export default function App() {
                         <Pencil size={13} />{' '}
                         {selectedWf.status === 'DRAFT' ? 'Edit in Designer' : 'Clone as New Version'}
                       </button>
+                      <a
+                        className="btn"
+                        href={api.exportBpmnUrl(selectedWf.id)}
+                        download={`${selectedWf.key}.bpmn`}
+                        target="_blank"
+                        rel="noreferrer"
+                        title="Export standard BPMN 2.0 XML (Camunda / Signavio compatible)"
+                        style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}
+                      >
+                        <Download size={13} /> Export BPMN 2.0
+                      </a>
                       {selectedWf.status === 'DRAFT' && (
                         <button
                           className="btn btn-success"
@@ -1499,7 +1657,7 @@ export default function App() {
                       value={regRole}
                       onChange={(e) => setRegRole(e.target.value as UserInfo['role'])}
                     >
-                      {(['OPERATOR', 'BUILDER', 'VIEWER', 'ADMIN'] as const).map((r) => (
+                      {(['OPERATOR', 'BUILDER', 'VIEWER', 'HR', 'USER', 'ADMIN'] as const).map((r) => (
                         <option key={r} value={r}>
                           {r}
                         </option>
@@ -1540,7 +1698,7 @@ export default function App() {
                       value={apiKeyRole}
                       onChange={(e) => setApiKeyRole(e.target.value as UserInfo['role'])}
                     >
-                      {(['OPERATOR', 'BUILDER', 'VIEWER', 'ADMIN'] as const).map((r) => (
+                      {(['OPERATOR', 'BUILDER', 'VIEWER', 'HR', 'USER', 'ADMIN'] as const).map((r) => (
                         <option key={r} value={r}>
                           {r}
                         </option>
@@ -1664,6 +1822,9 @@ export default function App() {
             onError={setError}
           />
         )}
+
+        {/* 14. ENTERPRISE STORAGE VAULT */}
+        {tab === 'storage' && <DocumentVaultView />}
         </div>
       </main>
     </div>

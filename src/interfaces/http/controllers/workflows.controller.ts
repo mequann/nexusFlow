@@ -9,8 +9,10 @@ import {
   Post,
   Put,
   Query,
+  Res,
   UseInterceptors,
 } from '@nestjs/common';
+import type { Response } from 'express';
 import {
   ApiBadRequestResponse,
   ApiBearerAuth,
@@ -30,6 +32,7 @@ import {
 import { z } from 'zod';
 import { WorkflowEngine } from '../../../application/engine/workflow-engine.js';
 import { WorkflowService } from '../../../application/services/workflow-service.js';
+import { BpmnXmlService } from '../../../application/services/bpmn-xml.service.js';
 import type { AuthPrincipal } from '../../../domain/security/types.js';
 import type { WorkflowGraphDefinition, WorkflowStatus } from '../../../domain/workflow/types.js';
 import { CurrentPrincipal, RequirePermission } from '../decorators/auth.decorator.js';
@@ -116,7 +119,41 @@ export class WorkflowsController {
   constructor(
     @Inject(WorkflowService) private readonly workflowService: WorkflowService,
     @Inject(WorkflowEngine) private readonly engine: WorkflowEngine,
+    @Inject(BpmnXmlService) private readonly bpmnXmlService: BpmnXmlService,
   ) {}
+
+  @Post('import-bpmn')
+  @RequirePermission('workflow:write')
+  @ApiOperation({ summary: 'Import standard BPMN 2.0 XML (Camunda Modeler / Signavio compatible)' })
+  @ApiCreatedResponse({ description: 'Workflow imported and created in DRAFT state' })
+  async importBpmn(
+    @CurrentPrincipal() principal: AuthPrincipal,
+    @Body() body: { xml: string; key?: string; name?: string },
+  ) {
+    if (!body?.xml || typeof body.xml !== 'string') {
+      throw new Error('Missing required string property "xml"');
+    }
+    const imported = this.bpmnXmlService.importBpmn(body.xml, body.key);
+    return this.workflowService.createWorkflow({
+      key: body.key || imported.key,
+      name: body.name || imported.name,
+      description: imported.description,
+      definition: imported.definition,
+      tenantId: principal.tenantId,
+      createdBy: principal.userId,
+    });
+  }
+
+  @Get(':id/export-bpmn')
+  @RequirePermission('workflow:read')
+  @ApiOperation({ summary: 'Export workflow definition to standard BPMN 2.0 XML file' })
+  async exportBpmn(@Param('id') id: string, @Res() res: Response) {
+    const wf = await this.workflowService.getById(id);
+    const xml = this.bpmnXmlService.exportBpmn(wf.definition, wf.key, wf.name);
+    res.setHeader('Content-Type', 'application/xml');
+    res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(wf.key)}.bpmn"`);
+    res.send(xml);
+  }
 
   @Post()
   @RequirePermission('workflow:write')

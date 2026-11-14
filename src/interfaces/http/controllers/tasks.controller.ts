@@ -63,15 +63,15 @@ export class TasksController {
   ) {
     const isGlobalAdmin = principal.role === 'ADMIN';
 
-    // Scoping: non-admin users only view tasks assigned to them, or addressed to their groups/departments
+    // Scoping: non-admin users view tasks assigned to them, or addressed to their groups/departments
     const userOrGroups = isGlobalAdmin
       ? undefined
-      : { userId: principal.userId, groups: [principal.email, principal.role.toLowerCase()] };
+      : { userId: principal.userId, groups: [principal.email, principal.role.toLowerCase(), 'all', 'everyone'] };
 
     const items = await this.taskService.listTasks({
       tenantId: principal.tenantId,
       status,
-      assignee: assignee ?? (isGlobalAdmin ? undefined : principal.userId),
+      assignee,
       candidateGroup,
       userOrGroups,
       instanceId,

@@ -63,7 +63,10 @@ export const api = {
     return res;
   },
 
-  me: () => request<{ principal: { userId: string; email: string; role: UserInfo['role'] } }>('/api/v1/auth/me'),
+  me: () =>
+    request<{ principal: { userId: string; email: string; name?: string; role: UserInfo['role'] } }>(
+      '/api/v1/auth/me',
+    ),
 
   listWorkflows: () => request<{ items: WorkflowRecord[] }>('/api/v1/workflows'),
   createWorkflow: (payload: {
@@ -339,5 +342,26 @@ export const api = {
 
   getInstanceExecutionLogs: (instanceId: string) =>
     request<{ instanceId: string; steps: any[]; total: number }>(`/api/v1/logs/instances/${instanceId}`),
+
+  // Tier-1 Enterprise: BPMN 2.0 Interoperability
+  importBpmn: (xml: string, key?: string, name?: string) =>
+    request<WorkflowRecord>('/api/v1/workflows/import-bpmn', {
+      method: 'POST',
+      body: JSON.stringify({ xml, key, name }),
+    }),
+  exportBpmnUrl: (workflowId: string) => `/api/v1/workflows/${workflowId}/export-bpmn`,
+
+  // Tier-1 Enterprise: Document Vault & Storage
+  listFiles: () => request<{ items: any[]; total: number }>('/api/v1/storage/files'),
+  uploadFile: (filename: string, contentBase64: string, mimeType?: string, metadata?: Record<string, unknown>) =>
+    request<{ file: any; downloadUrl: string }>('/api/v1/storage/upload', {
+      method: 'POST',
+      body: JSON.stringify({ filename, contentBase64, mimeType, metadata }),
+    }),
+  downloadFileUrl: (fileId: string) => `/api/v1/storage/files/${fileId}/download`,
+  deleteFile: (fileId: string) =>
+    request<{ success: boolean }>(`/api/v1/storage/files/${fileId}`, {
+      method: 'DELETE',
+    }),
 };
 

@@ -67,6 +67,11 @@ import { TelegramWebhookController } from './interfaces/http/controllers/telegra
 import { TemplateController } from './interfaces/http/controllers/template.controller.js';
 import { LogsController } from './interfaces/http/controllers/logs.controller.js';
 import { AuditLogService } from './application/services/audit-log.service.js';
+import { StorageController } from './interfaces/http/controllers/storage.controller.js';
+import { StorageService } from './application/services/storage.service.js';
+import { DistributedLockService } from './application/services/distributed-lock.service.js';
+import { BpmnXmlService } from './application/services/bpmn-xml.service.js';
+import { SsoService } from './application/services/sso.service.js';
 import { DomainExceptionFilter } from './interfaces/http/filters/domain-exception.filter.js';
 import { AuthGuard } from './interfaces/http/guards/auth.guard.js';
 import { RateLimitGuard } from './interfaces/http/guards/rate-limit.guard.js';
@@ -158,6 +163,7 @@ export class NexusFlowModule implements OnModuleInit, OnModuleDestroy {
         TelegramWebhookController,
         TemplateController,
         LogsController,
+        StorageController,
       ],
       providers: [
         { provide: APP_CONFIG, useValue: config satisfies AppConfig },
@@ -184,6 +190,10 @@ export class NexusFlowModule implements OnModuleInit, OnModuleDestroy {
         TelegramBotService,
         EventDispatcherService,
         AuditLogService,
+        StorageService,
+        DistributedLockService,
+        BpmnXmlService,
+        SsoService,
         JobWorker,
         SchedulerWorker,
         IdempotencyInterceptor,
@@ -216,6 +226,10 @@ export class NexusFlowModule implements OnModuleInit, OnModuleDestroy {
         TelegramBotService,
         EventDispatcherService,
         AuditLogService,
+        StorageService,
+        DistributedLockService,
+        BpmnXmlService,
+        SsoService,
         JobWorker,
         SchedulerWorker,
       ],

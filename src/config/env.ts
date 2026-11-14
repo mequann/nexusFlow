@@ -57,6 +57,31 @@ const EnvSchema = z.object({
 
   BOOTSTRAP_ADMIN_EMAIL: z.string().email().default('admin@nexusflow.local'),
   BOOTSTRAP_ADMIN_PASSWORD: z.string().min(8).default('AdminChangeMe123!'),
+
+  // Tier-1 Enterprise: Document & Attachment Storage
+  FILE_STORAGE_DRIVER: z.enum(['local', 'database', 's3_compatible', 'memory']).default('local'),
+  FILE_STORAGE_LOCAL_DIR: z.string().default('./data/storage'),
+  FILE_STORAGE_S3_ENDPOINT: z.string().optional(),
+  FILE_STORAGE_S3_BUCKET: z.string().default('nexusflow-documents'),
+  FILE_STORAGE_S3_ACCESS_KEY: z.string().optional(),
+  FILE_STORAGE_S3_SECRET_KEY: z.string().optional(),
+  FILE_STORAGE_S3_REGION: z.string().default('us-east-1'),
+  FILE_STORAGE_S3_FORCE_PATH_STYLE: z
+    .string()
+    .transform((v) => v === 'true')
+    .default('true'),
+
+  // Tier-1 Enterprise: Distributed Clustering & Concurrency Lock
+  CLUSTER_LOCK_DRIVER: z.enum(['postgres_advisory', 'redis', 'memory']).default('postgres_advisory'),
+
+  // Tier-1 Enterprise: SSO & Identity Federation (OIDC/SAML)
+  SSO_ENABLED: z
+    .string()
+    .transform((v) => v === 'true')
+    .default('false'),
+  SSO_OIDC_ISSUER_URL: z.string().optional(),
+  SSO_OIDC_CLIENT_ID: z.string().optional(),
+  SSO_OIDC_CLIENT_SECRET: z.string().optional(),
 });
 
 export type AppConfig = z.infer<typeof EnvSchema>;
