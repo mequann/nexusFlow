@@ -29,6 +29,7 @@ RUN npm ci --omit=dev
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/migrations ./migrations
 COPY --from=builder /app/frontend/dist ./frontend/dist
+RUN mkdir -p /app/data/storage && chown -R node:node /app/data
 USER node
 EXPOSE 3000
 CMD ["node", "dist/main.js"]
