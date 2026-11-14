@@ -84,6 +84,7 @@ import {
   PER_DIEM_TRAVEL_TEMPLATE,
   ETHIOPIAN_FIELD_MISSION_PER_DIEM_TEMPLATE,
 } from './application/templates/ethiopian-office-templates.js';
+import { UNIVERSAL_INDUSTRY_TEMPLATES } from './application/templates/universal-industry-catalog.js';
 import { getStarterTenantImportPayload } from './application/templates/tenant-workflow-template.js';
 
 export interface NexusFlowModuleOptions {
@@ -333,6 +334,27 @@ export class NexusFlowModule implements OnModuleInit, OnModuleDestroy {
         }
       } catch (err: any) {
         console.warn(`[Bootstrap] Warning initializing ${template.key}: ${err.message}`);
+      }
+    }
+
+    // 5. Universal Industry Catalog (Banking Loan Origination, IT CAB Deployment, etc.)
+    for (const meta of UNIVERSAL_INDUSTRY_TEMPLATES) {
+      try {
+        const existing = await this.workflowService.list({ key: meta.workflow.key, tenantId });
+        if (existing.length === 0) {
+          const created = await this.workflowService.createWorkflow({
+            ...meta.workflow,
+            tenantId,
+          });
+          await this.workflowService.publishWorkflow(created.id);
+        } else {
+          const published = existing.find((w) => w.status === 'PUBLISHED');
+          if (!published && existing[0]) {
+            await this.workflowService.publishWorkflow(existing[0].id);
+          }
+        }
+      } catch (err: any) {
+        console.warn(`[Bootstrap] Warning initializing industry workflow ${meta.workflow.key}: ${err.message}`);
       }
     }
   }

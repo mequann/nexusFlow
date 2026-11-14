@@ -212,6 +212,14 @@ export default function App() {
         );
       }
       setInstances(instRes.items);
+      if (instRes.items.length > 0) {
+        setSelectedCase((prev) => {
+          if (!prev && instRes.items[0]) {
+            void loadCaseDetails(instRes.items[0].id);
+          }
+          return prev;
+        });
+      }
       setTasks(taskRes.items);
       setIncidents(incRes.items);
       setConnectors(connRes.items);
@@ -1063,10 +1071,29 @@ export default function App() {
           />
         )}
 
-        {tab === 'cases' && (
-          <div className="split">
-            <div className="card">
-              <h3 style={{ marginTop: 0 }}>Workflow Instances</h3>
+        {tab === 'cases' &&
+          (instances.length === 0 ? (
+            <div className="card" style={{ textAlign: 'center', padding: '48px 24px', maxWidth: 640, margin: '24px auto' }}>
+              <div style={{ display: 'inline-flex', padding: 16, borderRadius: '50%', background: 'rgba(59, 130, 246, 0.1)', marginBottom: 16 }}>
+                <Briefcase size={36} style={{ color: '#60a5fa' }} />
+              </div>
+              <h3 style={{ margin: '0 0 8px', fontSize: 18 }}>No Active Business Cases</h3>
+              <p style={{ color: 'var(--muted)', maxWidth: 440, margin: '0 auto 20px', fontSize: 13, lineHeight: 1.6 }}>
+                There are currently no active workflow cases in your workspace. Launch a workflow from the runner or submit a request from the self-service portal to generate a live trace.
+              </p>
+              <div style={{ display: 'flex', gap: 10, justifyContent: 'center' }}>
+                <button className="btn btn-primary" onClick={() => setTab('workflows')}>
+                  <Play size={13} style={{ marginRight: 6 }} /> Workflows & Runner
+                </button>
+                <button className="btn" onClick={() => setTab('user-portal')}>
+                  <FileText size={13} style={{ marginRight: 6 }} /> Self-Service Desk
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="split">
+              <div className="card">
+                <h3 style={{ marginTop: 0 }}>Workflow Instances ({instances.length})</h3>
               {instances.map((inst) => (
                 <div
                   key={inst.id}
@@ -1296,18 +1323,36 @@ export default function App() {
                 </div>
               </div>
             ) : (
-              <div className="card">
-                Select an instance on the left to inspect its Kissflow case view, live topology, and execution trace.
+              <div className="card" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: 340, textAlign: 'center', padding: 32 }}>
+                <Activity size={36} style={{ color: 'var(--muted)', marginBottom: 12 }} />
+                <h4 style={{ margin: '0 0 6px', fontSize: 15 }}>Select a Case to Inspect</h4>
+                <p style={{ color: 'var(--muted)', maxWidth: 360, fontSize: 12, margin: 0, lineHeight: 1.5 }}>
+                  Click an execution instance in the left column to track its live BPMN token positions, SLA stage progress, runtime variables, and collaboration logs.
+                </p>
               </div>
             )}
           </div>
-        )}
+        ))}
 
         {tab === 'tasks' && (
           <div style={{ display: 'grid', gap: 16 }}>
             {tasks.length === 0 && (
-              <div className="card">
-                No user tasks found. Launch a workflow with an approval step to see tasks here.
+              <div className="card" style={{ textAlign: 'center', padding: '48px 24px', maxWidth: 640, margin: '24px auto' }}>
+                <div style={{ display: 'inline-flex', padding: 16, borderRadius: '50%', background: 'rgba(16, 185, 129, 0.1)', marginBottom: 16 }}>
+                  <CheckCircle2 size={36} style={{ color: '#10b981' }} />
+                </div>
+                <h3 style={{ margin: '0 0 8px', fontSize: 18 }}>Task Inbox All Caught Up!</h3>
+                <p style={{ color: 'var(--muted)', maxWidth: 440, margin: '0 auto 20px', fontSize: 13, lineHeight: 1.6 }}>
+                  There are currently no pending human approvals, consensus quorum reviews, or form assignments waiting for your role.
+                </p>
+                <div style={{ display: 'flex', gap: 10, justifyContent: 'center' }}>
+                  <button className="btn btn-primary" onClick={() => setTab('workflows')}>
+                    <Play size={13} style={{ marginRight: 6 }} /> Launch a Process
+                  </button>
+                  <button className="btn" onClick={() => setTab('hr-desk')}>
+                    <Users size={13} style={{ marginRight: 6 }} /> HR Operations Desk
+                  </button>
+                </div>
               </div>
             )}
             {tasks.map((t) => {
@@ -1405,7 +1450,15 @@ export default function App() {
             <div className="card">
               <h3 style={{ marginTop: 0 }}>Operational Incidents</h3>
               {incidents.length === 0 && (
-                <div style={{ fontSize: 13, color: 'var(--muted)' }}>No incidents recorded.</div>
+                <div style={{ padding: '14px 16px', background: 'rgba(16, 185, 129, 0.08)', border: '1px solid rgba(16, 185, 129, 0.25)', borderRadius: 8, marginBottom: 16 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <Shield size={20} style={{ color: '#10b981', flexShrink: 0 }} />
+                    <div>
+                      <div style={{ fontWeight: 600, color: '#34d399', fontSize: 13 }}>All Background Engines Healthy</div>
+                      <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>Zero open incidents across all worker queues, saga compensations, and timer schedulers.</div>
+                    </div>
+                  </div>
+                </div>
               )}
               {incidents.map((inc) => (
                 <div key={inc.id} className="list-item">
@@ -1483,6 +1536,13 @@ export default function App() {
                   Fetch & Lock
                 </button>
               </div>
+              {externalTasks.length === 0 && (
+                <div style={{ padding: '24px 16px', border: '1px dashed var(--border)', borderRadius: 8, textAlign: 'center', color: 'var(--muted)', fontSize: 12, marginTop: 12 }}>
+                  <Cpu size={24} style={{ color: 'var(--muted)', margin: '0 auto 8px', display: 'block' }} />
+                  <div>No external tasks currently locked.</div>
+                  <div style={{ fontSize: 11, marginTop: 4 }}>Enter a topic name above and click <strong>Fetch & Lock</strong> to poll tasks for external microservice workers.</div>
+                </div>
+              )}
               {externalTasks.map((et) => (
                 <div key={et.id} className="list-item">
                   <div>

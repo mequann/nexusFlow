@@ -65,6 +65,41 @@ export const BANKING_LOAN_ORIGINATION_TEMPLATE: IndustryTemplateMeta = {
           },
         },
         {
+          id: 'parallel_checks',
+          type: 'logic.parallel',
+          name: 'Parallel Risk & Compliance Screening',
+          config: {},
+        },
+        {
+          id: 'aml_kyc_screening',
+          type: 'action.transform',
+          name: 'AML & Politically Exposed Persons (PEP) Screening',
+          config: {
+            mapping: {
+              amlPassed: true,
+              pepCleared: true,
+              screeningDate: '{{ $now() }}',
+            },
+          },
+        },
+        {
+          id: 'collateral_valuation',
+          type: 'action.transform',
+          name: 'Collateral Asset Valuation & LTV Ratio Check',
+          config: {
+            mapping: {
+              collateralVerified: true,
+              loanToValueRatio: '{{ $vars.requestedAmount / ($vars.collateralValue || 1) }}',
+            },
+          },
+        },
+        {
+          id: 'join_checks',
+          type: 'logic.join',
+          name: 'Consolidate Compliance Results',
+          config: {},
+        },
+        {
           id: 'dual_underwriting',
           type: 'bpmn.user_task',
           name: 'Underwriting Dual-Signoff (Consensus Quorum)',
@@ -87,13 +122,30 @@ export const BANKING_LOAN_ORIGINATION_TEMPLATE: IndustryTemplateMeta = {
             },
           },
         },
+        {
+          id: 'notify_borrower',
+          type: 'action.transform',
+          name: 'SMS & Email Notification Dispatch',
+          config: {
+            mapping: {
+              disbursementNoticeSent: true,
+              status: 'LOAN_ACTIVE',
+            },
+          },
+        },
         { id: 'end', type: 'bpmn.end', name: 'Loan Disbursed & Active', config: {} },
       ],
       edges: [
         { id: 'e1', from: 'start', to: 'risk_evaluation' },
-        { id: 'e2', from: 'risk_evaluation', to: 'dual_underwriting' },
-        { id: 'e3', from: 'dual_underwriting', to: 'disburse_funds' },
-        { id: 'e4', from: 'disburse_funds', to: 'end' },
+        { id: 'e2', from: 'risk_evaluation', to: 'parallel_checks' },
+        { id: 'e3', from: 'parallel_checks', to: 'aml_kyc_screening' },
+        { id: 'e4', from: 'parallel_checks', to: 'collateral_valuation' },
+        { id: 'e5', from: 'aml_kyc_screening', to: 'join_checks' },
+        { id: 'e6', from: 'collateral_valuation', to: 'join_checks' },
+        { id: 'e7', from: 'join_checks', to: 'dual_underwriting' },
+        { id: 'e8', from: 'dual_underwriting', to: 'disburse_funds' },
+        { id: 'e9', from: 'disburse_funds', to: 'notify_borrower' },
+        { id: 'e10', from: 'notify_borrower', to: 'end' },
       ],
     },
   },
@@ -401,15 +453,61 @@ export const IT_CAB_DEPLOYMENT_TEMPLATE: IndustryTemplateMeta = {
       nodes: [
         { id: 'start', type: 'trigger.manual', name: 'Request For Change (RFC)', config: {} },
         {
+          id: 'ci_automated_tests',
+          type: 'action.transform',
+          name: 'CI/CD Automated Tests & SAST Security Scan',
+          config: {
+            mapping: {
+              sastScanPassed: true,
+              unitTestsPassed: true,
+              coveragePercent: 94.5,
+            },
+          },
+        },
+        {
+          id: 'parallel_reviews',
+          type: 'logic.parallel',
+          name: 'Parallel Architectural & Security Assessment',
+          config: {},
+        },
+        {
+          id: 'security_review',
+          type: 'bpmn.user_task',
+          name: 'InfoSec Lead Security Review',
+          config: { candidateGroup: 'security_engineers', timeLimitHours: 12 },
+        },
+        {
+          id: 'sre_review',
+          type: 'bpmn.user_task',
+          name: 'Site Reliability Engineering (SRE) Capacity Review',
+          config: { candidateGroup: 'sre_engineers', timeLimitHours: 12 },
+        },
+        {
+          id: 'join_reviews',
+          type: 'logic.join',
+          name: 'Synchronize Review Approvals',
+          config: {},
+        },
+        {
           id: 'cab_approval',
           type: 'bpmn.user_task',
           name: 'CAB Senior Leadership Approval',
           config: { candidateGroup: 'cab_architects', timeLimitHours: 24 },
         },
         {
+          id: 'canary_rollout',
+          type: 'action.http',
+          name: 'Canary 10% Canary Traffic Rollout',
+          config: {
+            url: 'https://k8s.cluster.internal/canary',
+            method: 'POST',
+            body: { service: '{{ $vars.serviceName }}', trafficRatio: 0.1 },
+          },
+        },
+        {
           id: 'deploy_k8s',
           type: 'action.http',
-          name: 'Trigger Kubernetes Blue/Green Deployment',
+          name: 'Trigger 100% Blue/Green Production Deployment',
           config: {
             url: 'https://ci.devops.internal/deploy/k8s',
             method: 'POST',
@@ -419,9 +517,16 @@ export const IT_CAB_DEPLOYMENT_TEMPLATE: IndustryTemplateMeta = {
         { id: 'end', type: 'bpmn.end', name: 'Production Deployed Successfully', config: {} },
       ],
       edges: [
-        { id: 'e1', from: 'start', to: 'cab_approval' },
-        { id: 'e2', from: 'cab_approval', to: 'deploy_k8s' },
-        { id: 'e3', from: 'deploy_k8s', to: 'end' },
+        { id: 'e1', from: 'start', to: 'ci_automated_tests' },
+        { id: 'e2', from: 'ci_automated_tests', to: 'parallel_reviews' },
+        { id: 'e3', from: 'parallel_reviews', to: 'security_review' },
+        { id: 'e4', from: 'parallel_reviews', to: 'sre_review' },
+        { id: 'e5', from: 'security_review', to: 'join_reviews' },
+        { id: 'e6', from: 'sre_review', to: 'join_reviews' },
+        { id: 'e7', from: 'join_reviews', to: 'cab_approval' },
+        { id: 'e8', from: 'cab_approval', to: 'canary_rollout' },
+        { id: 'e9', from: 'canary_rollout', to: 'deploy_k8s' },
+        { id: 'e10', from: 'deploy_k8s', to: 'end' },
       ],
     },
   },
