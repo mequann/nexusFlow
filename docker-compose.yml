@@ -6,7 +6,7 @@ services:
       POSTGRES_PASSWORD: nexusflow
       POSTGRES_DB: nexusflow
     ports:
-      - "5432:5432"
+      - "5433:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -26,7 +26,7 @@ services:
       retries: 10
 
   api:
-    build: .
+    image: nexusflow:latest
     ports:
       - "3000:3000"
     environment:
@@ -47,7 +47,7 @@ services:
         condition: service_healthy
 
   worker:
-    build: .
+    image: nexusflow:latest
     command: ["node", "dist/worker.js"]
     environment:
       NODE_ENV: production
