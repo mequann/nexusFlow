@@ -3,7 +3,10 @@ dist/
 coverage/
 *.tsbuildinfo
 .env
-.env.local
+.env.*
+*.private.*
+DEPLOYMENT_GUIDE.md
+DEPLOYMENT_PRIVATE.md
 *.log
 .DS_Store
 Thumbs.db
