@@ -4,6 +4,26 @@
   "description": "Hybrid Camunda BPMN + n8n DAG Workflow & Process Orchestration Engine built with NestJS & Clean Architecture",
   "type": "module",
   "main": "dist/main.js",
+  "types": "dist/main.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/main.d.ts",
+      "import": "./dist/main.js"
+    },
+    "./sdk": {
+      "types": "./dist/sdk/client.d.ts",
+      "import": "./dist/sdk/client.js"
+    },
+    "./module": {
+      "types": "./dist/app.module.d.ts",
+      "import": "./dist/app.module.js"
+    }
+  },
+  "files": [
+    "dist",
+    "migrations",
+    "frontend/dist"
+  ],
   "scripts": {
     "dev": "tsx watch src/main.ts",
     "dev:worker": "tsx watch src/worker.ts",
